@@ -79,6 +79,10 @@ export const activityPatchSchema = z
     acknowledgeSessionReview: z.literal(true).optional(),
   })
   .strict();
+export interface ActivitySchema {
+  schema: 'public';
+  tables: { name: string; columns: { name: string; type: string }[] }[];
+}
 export interface ProjectActivity {
   enabled: boolean;
   mode: 'public-read' | 'test-sign-in';

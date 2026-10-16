@@ -14,7 +14,7 @@ const { app, store, engine } = await createApp(
     origin: 'http://localhost:8189',
     setupToken: 'browser-fixture-setup-token-0000000000',
   },
-  async (url) => {
+  async (url, init) => {
     const u = String(url);
     const project = {
       id: ref,
@@ -40,7 +40,18 @@ const { app, store, engine } = await createApp(
         user: { factors: [] },
       });
     if (u.endsWith('/auth/v1/logout?scope=local')) return new Response(null, { status: 204 });
-    if (u.endsWith('/read-only')) return Response.json([{ heartbeat: 1 }], { status: 201 });
+    if (u.endsWith('/read-only')) {
+      if (String(init?.body).includes('information_schema.columns'))
+        return Response.json(
+          [
+            { table_name: 'healthcheck', column_name: 'id', data_type: 'uuid' },
+            { table_name: 'healthcheck', column_name: 'counter', data_type: 'integer' },
+            { table_name: 'other_table', column_name: 'total', data_type: 'integer' },
+          ],
+          { status: 201 },
+        );
+      return Response.json([{ heartbeat: 1 }], { status: 201 });
+    }
     throw new Error('Unexpected test request');
   },
 );

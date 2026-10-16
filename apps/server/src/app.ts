@@ -14,6 +14,7 @@ import { random, digest, equal, vault } from './crypto.js';
 import { Supabase, Discovery, ServiceError, type Transport } from './supabase.js';
 import { Engine } from './engine.js';
 import { validOrigin } from './origin.js';
+import { activitySchema } from './activity-schema.js';
 export interface AppConfig {
   database: string;
   key: string;
@@ -332,6 +333,18 @@ export async function createApp(config: AppConfig, transport?: Transport) {
     return await engine.disconnect();
   });
   app.get('/api/projects', async () => ({ items: s.projects() }));
+  app.post(
+    '/api/projects/:id/activity-schema',
+    {
+      config: { rateLimit: { max: 6, timeWindow: '1 minute' } },
+    },
+    async (req) => {
+      const { id } = z.object({ id: z.string().regex(/^[a-z]{20}$/) }).parse(req.params);
+      const p = s.project(id);
+      if (!p?.present) throw new ServiceError('PROJECT_NOT_FOUND', 404);
+      return activitySchema(api, id);
+    },
+  );
   app.post('/api/projects/sync', async () => {
     await discovery.sync();
     for (const p of s.projects()) engine.plan(p);

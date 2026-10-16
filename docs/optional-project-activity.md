@@ -22,12 +22,16 @@ This provider scope is broad. SupaBeacon lists key metadata with `reveal=false`,
 
 1. Open **Projects → your project → Optional project activity**.
 2. Choose **Read one safe column** or **Test-account sign-in → read → local sign-out**.
-3. Enter an **existing safe table** in the exposed default schema and a **small, nonsensitive column**, such as an ID. Wildcards, arbitrary SQL, RPCs and arbitrary URLs are not supported.
+3. Click **Load tables and columns**, select an **existing safe table** from `public`, then select a **small, nonsensitive column** such as an ID or number. Column types appear in the list. Loading uses the existing `database:read` OAuth permission and a fixed metadata-only query; it does not fetch application rows, sign in or enable activity. It runs only when you click Load/Reload, not on a schedule. Wildcards, arbitrary SQL, RPCs and arbitrary URLs are not supported.
 4. Select **1–3 additional reads per execution**.
 5. Enable **additional activity for this project**, then save.
 6. Run **Run heartbeat / test connection** and wait for the final result. Execution details distinguish the normal heartbeat, each additional read, sign-in and sign-out.
 
 Existing RLS and column/table grants remain in effect. An empty result may be legitimate under RLS or for an empty table. SupaBeacon does not create a table, expose a private table, alter RLS or modify rows. Result validation requires at most one row containing only the selected column, and caps the JSON response at 64 KiB. Values are not written to SQLite or logs; they are discarded after validation. This is not a claim of cryptographic memory erasure.
+
+The picker lists base tables visible to the read-only Management API role in `public`; views, other schemas and names with special characters are excluded. A listed table is not proof of Data API access for the public role or your test account. Reads explicitly select the `public` schema, which must be exposed in the project's Data API configuration. Choose the account mode appropriate for your existing access rules, save and run the manual test. Do not loosen private-table policies merely to make this check pass.
+
+If loading fails, no tables exist or your schema is unusually large (over 2,000 supported columns), the UI explains the result and offers **Enter names manually**. Existing saved table/column values remain available without loading. Metadata is not persisted in SQLite or logged; each Load/Reload adds a provider status check and one metadata query, outside the heartbeat counters. The backend limits loading to six calls per minute per client IP.
 
 ## 3. Test-account sign-in, if selected
 

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { boundedJson } from './response.js';
 import type { Project } from '../../../packages/shared/config.js';
 import { Supabase, ServiceError } from './supabase.js';
 
@@ -150,7 +151,11 @@ export class ActivityRunner {
           `https://${p.id}.supabase.co/rest/v1/${encodeURIComponent(a.table)}?select=${encodeURIComponent(a.column)}&limit=1`,
           {
             method: 'GET',
-            headers: { apikey: publicKey, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+            headers: {
+              apikey: publicKey,
+              'Accept-Profile': 'public',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
           },
           async (r) => {
             if (!r.headers.has('content-range'))
@@ -218,27 +223,5 @@ export class ActivityRunner {
         s.log('warning', 'optional_activity_failed', p.id, { execution: id, code: error.code });
     }
     if (error) throw error;
-  }
-}
-async function boundedJson(response: Response, limit: number): Promise<unknown> {
-  if (!response.headers.get('content-type')?.includes('application/json')) {
-    await response.body?.cancel();
-    throw new ServiceError('ACTIVITY_RESPONSE_INVALID', 502);
-  }
-  const reader = response.body?.getReader();
-  if (!reader) throw new ServiceError('ACTIVITY_RESPONSE_INVALID', 502);
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.length;
-      if (size > limit) throw new ServiceError('ACTIVITY_RESPONSE_TOO_LARGE', 413);
-      chunks.push(value);
-    }
-    return JSON.parse(Buffer.concat(chunks).toString());
-  } finally {
-    await reader.cancel().catch(() => {});
   }
 }

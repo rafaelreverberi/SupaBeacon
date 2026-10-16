@@ -7,6 +7,7 @@ import { setTimeout as wait } from 'node:timers/promises';
 import { createApp } from '../src/app.js';
 import { vault } from '../src/crypto.js';
 import { Store } from '../src/storage.js';
+import { activitySchemaQuery } from '../src/activity-schema.js';
 import type { Execution } from '../../../packages/shared/config.js';
 const ref = 'abcdefghijklmnopqrst',
   ref2 = 'bbbbbbbbbbbbbbbbbbbb',
@@ -56,6 +57,28 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, dataEnab
       if (u.endsWith('/v1/projects')) return response([project(ref), project(ref2)]);
       if (u.endsWith(`/v1/projects/${ref}`) || u.endsWith(`/v1/projects/${ref2}`))
         return response(project(u.split('/').at(-1)!));
+      if (u.endsWith('/read-only') && String(init?.body).includes('information_schema.columns')) {
+        assert.deepEqual(JSON.parse(String(init?.body)), { query: activitySchemaQuery });
+        if (state.mode === 'schema-denied') return response({}, 403);
+        if (state.mode === 'schema-invalid') return response([{ table_name: 'private.data' }]);
+        if (state.mode === 'schema-large')
+          return response(
+            Array.from({ length: 2001 }, () => ({
+              table_name: 'safe',
+              column_name: 'id',
+              data_type: 'uuid',
+            })),
+          );
+        if (state.mode === 'schema-empty') return response([]);
+        return response(
+          [
+            { table_name: 'healthcheck', column_name: 'id', data_type: 'uuid' },
+            { table_name: 'healthcheck', column_name: 'counter', data_type: 'integer' },
+            { table_name: 'other_table', column_name: 'total', data_type: 'integer' },
+          ],
+          201,
+        );
+      }
       if (u.endsWith('/read-only'))
         return state.mode === 'heartbeat-error'
           ? response({}, 503)
@@ -418,4 +441,102 @@ test('session acknowledgement cannot clear uncertainty while a sign-in is still 
   assert.equal((await pending).activity_error, 'EXECUTION_STOPPED');
   assert.equal(f.state.signOuts, 1);
   assert.equal(f.store.project(ref)?.activity.sessionReviewRequired, false);
+});
+
+test('schema picker uses fixed metadata-only query, independent of activity and Secrets Read', async (t) => {
+  const f = await fixture(t, false);
+  const r = await f.app.inject({
+    method: 'POST',
+    url: `/api/projects/${ref}/activity-schema`,
+    headers: f.headers,
+    payload: {},
+  });
+  assert.equal(r.statusCode, 200);
+  assert.deepEqual(r.json(), {
+    schema: 'public',
+    tables: [
+      {
+        name: 'healthcheck',
+        columns: [
+          { name: 'id', type: 'uuid' },
+          { name: 'counter', type: 'integer' },
+        ],
+      },
+      { name: 'other_table', columns: [{ name: 'total', type: 'integer' }] },
+    ],
+  });
+  assert.equal(f.store.project(ref)?.activity.enabled, false);
+  assert.equal(f.state.signIns, 0);
+  assert.equal(f.state.reads, 0);
+  assert.ok(!f.state.urls.some((u) => u.includes('api-keys')));
+  assert.equal(
+    (f.store.db.prepare('SELECT count(*) AS n FROM executions').get() as { n: number }).n,
+    0,
+  );
+});
+test('schema picker requires session, CSRF and a present valid project', async (t) => {
+  const f = await fixture(t);
+  const url = `/api/projects/${ref}/activity-schema`;
+  assert.equal(
+    (await f.app.inject({ method: 'POST', url, headers: { origin }, payload: {} })).statusCode,
+    403,
+  );
+  assert.equal(
+    (
+      await f.app.inject({
+        method: 'POST',
+        url,
+        headers: { origin, cookie: f.headers.cookie },
+        payload: {},
+      })
+    ).statusCode,
+    403,
+  );
+  assert.equal(
+    (
+      await f.app.inject({
+        method: 'POST',
+        url: '/api/projects/invalid/activity-schema',
+        headers: f.headers,
+        payload: {},
+      })
+    ).statusCode,
+    400,
+  );
+  assert.equal(
+    (
+      await f.app.inject({
+        method: 'POST',
+        url: `/api/projects/${'z'.repeat(20)}/activity-schema`,
+        headers: f.headers,
+        payload: {},
+      })
+    ).statusCode,
+    404,
+  );
+  f.store.db.prepare('UPDATE projects SET present=0 WHERE id=?').run(ref);
+  assert.equal(
+    (await f.app.inject({ method: 'POST', url, headers: f.headers, payload: {} })).statusCode,
+    404,
+  );
+});
+test('schema picker surfaces denied/invalid/oversized schemas and legitimate empty metadata', async (t) => {
+  const f = await fixture(t);
+  for (const [mode, status] of [
+    ['schema-denied', 403],
+    ['schema-invalid', 502],
+    ['schema-large', 422],
+    ['schema-empty', 200],
+  ] as const) {
+    f.state.mode = mode;
+    const r = await f.app.inject({
+      method: 'POST',
+      url: `/api/projects/${ref}/activity-schema`,
+      headers: f.headers,
+      payload: {},
+    });
+    assert.equal(r.statusCode, status);
+    if (status === 200) assert.deepEqual(r.json(), { schema: 'public', tables: [] });
+    else assert.ok(!r.body.includes('private.data'));
+  }
 });

@@ -52,8 +52,31 @@ test('protected onboarding, settings, project actions, history, logs, mobile and
   await expect(page.locator('.run-result .badge')).toHaveText('success');
   await expect(page.getByLabel('Enable additional activity for this project')).not.toBeChecked();
   await page.getByLabel('Enable additional activity for this project').check();
+  await page.route('**/activity-schema', (route) =>
+    route.fulfill({
+      status: 403,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { message: 'project permission denied' } }),
+    }),
+  );
+  await page.getByRole('button', { name: 'Load tables and columns', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Could not load tables' })).toBeVisible();
+  await page.getByLabel('Enter names manually', { exact: true }).check();
   await page.getByLabel('Activity table', { exact: true }).fill('healthcheck');
   await page.getByLabel('Safe column to read', { exact: true }).fill('id');
+  await page.getByLabel('Enter names manually', { exact: true }).uncheck();
+  await page.unroute('**/activity-schema');
+  await page.getByRole('button', { name: 'Load tables and columns', exact: true }).click();
+  await page.getByLabel('Activity table', { exact: true }).selectOption('other_table');
+  await page.getByLabel('Safe column to read', { exact: true }).selectOption('total');
+  await page.getByLabel('Activity table', { exact: true }).selectOption('healthcheck');
+  await expect(page.getByLabel('Safe column to read', { exact: true })).toHaveValue('');
+  await expect(
+    page
+      .getByLabel('Safe column to read', { exact: true })
+      .getByRole('option', { name: 'total (integer)', exact: true }),
+  ).toHaveCount(0);
+  await page.getByLabel('Safe column to read', { exact: true }).selectOption('id');
   await page.getByLabel('Additional reads per execution').fill('2');
   await page.getByRole('button', { name: 'Save optional activity', exact: true }).click();
   await expect(
