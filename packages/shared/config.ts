@@ -62,6 +62,7 @@ export const overrideSchema = z
 const identifier = z.string().regex(/^[a-zA-Z_][a-zA-Z0-9_]{0,62}$/);
 export const activityPatchSchema = z
   .object({
+    name: z.string().trim().min(1).max(80).optional(),
     enabled: z.boolean(),
     mode: z.enum(['public-read', 'test-sign-in']),
     table: identifier.nullable(),
@@ -82,6 +83,10 @@ export const activityPatchSchema = z
 export interface ActivitySchema {
   schema: 'public';
   tables: { name: string; columns: { name: string; type: string }[] }[];
+}
+export interface SavedActivity extends ProjectActivity {
+  id: string;
+  name: string;
 }
 export interface ProjectActivity {
   enabled: boolean;
@@ -117,6 +122,7 @@ export const projectPatch = z
   })
   .strict();
 export interface Project {
+  activities: SavedActivity[];
   activity: ProjectActivity;
   id: string;
   name: string;

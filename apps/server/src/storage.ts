@@ -8,6 +8,7 @@ import {
   defaults,
   defaultActivity,
   type ProjectActivity,
+  type SavedActivity,
   settingsSchema,
   type Settings,
   type Project,
@@ -63,6 +64,18 @@ export class Store {
       `);
       this.db.prepare('INSERT INTO migrations VALUES(2,?)').run(Date.now());
     })();
+    this.db.transaction(() => {
+      if (this.db.prepare('SELECT 1 FROM migrations WHERE version=3').get()) return;
+      this.db.exec(`
+        ALTER TABLE project_activity RENAME TO project_activity_v2;
+        CREATE TABLE project_activity(project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,id TEXT NOT NULL,name TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0,1)),mode TEXT NOT NULL DEFAULT 'public-read' CHECK(mode IN ('public-read','test-sign-in')),table_name TEXT,column_name TEXT,reads INTEGER NOT NULL DEFAULT 1 CHECK(reads BETWEEN 1 AND 3),credentials TEXT,sign_in_error TEXT,session_review INTEGER NOT NULL DEFAULT 0 CHECK(session_review IN (0,1)),PRIMARY KEY(project_id,id));
+        INSERT INTO project_activity SELECT project_id,'default','Additional activity',enabled,mode,table_name,column_name,reads,credentials,sign_in_error,session_review FROM project_activity_v2;
+        DROP TABLE project_activity_v2;
+        ALTER TABLE execution_requests ADD COLUMN activity_id TEXT;
+        ALTER TABLE execution_requests ADD COLUMN activity_name TEXT;
+      `);
+      this.db.prepare('INSERT INTO migrations VALUES(3,?)').run(Date.now());
+    })();
     this.orm = drizzle(this.db);
     if (!this.get('monitoring'))
       this.set('monitoring', settingsSchema.parse({ ...defaults, ...initial }));
@@ -86,14 +99,16 @@ export class Store {
       .prepare(
         `SELECT p.*, (SELECT count(*) FROM executions e WHERE e.project_id=p.id AND e.state='failed' AND e.started>?) AS failures FROM projects p ORDER BY p.name`,
       )
-      .all(Date.now() - 7 * 86400_000) as Omit<Project, 'activity'>[];
+      .all(Date.now() - 7 * 86400_000) as Omit<Project, 'activity' | 'activities'>[];
     // Never select the encrypted credential column into API-facing project objects.
     const configs = this.db
       .prepare(
-        'SELECT project_id,enabled,mode,table_name,column_name,reads,credentials IS NOT NULL AS configured,session_review,sign_in_error FROM project_activity',
+        'SELECT project_id,id,name,enabled,mode,table_name,column_name,reads,credentials IS NOT NULL AS configured,session_review,sign_in_error FROM project_activity ORDER BY rowid',
       )
       .all() as {
       project_id: string;
+      id: string;
+      name: string;
       enabled: number;
       mode: ProjectActivity['mode'];
       table_name: string | null;
@@ -103,28 +118,38 @@ export class Store {
       session_review: number;
       sign_in_error: string | null;
     }[];
-    const byId = new Map(
-      configs.map((a) => [
-        a.project_id,
-        {
-          enabled: !!a.enabled,
-          mode: a.mode,
-          table: a.table_name,
-          column: a.column_name,
-          reads: a.reads,
-          credentialsConfigured: !!a.configured,
-          sessionReviewRequired: !!a.session_review,
-          signInError: a.sign_in_error,
-        },
-      ]),
-    );
-    return rows.map((p) => ({ ...p, activity: byId.get(p.id) ?? { ...defaultActivity } }));
+    const byProject = new Map<string, SavedActivity[]>();
+    for (const a of configs) {
+      const list = byProject.get(a.project_id) ?? [];
+      list.push({
+        id: a.id,
+        name: a.name,
+        enabled: !!a.enabled,
+        mode: a.mode,
+        table: a.table_name,
+        column: a.column_name,
+        reads: a.reads,
+        credentialsConfigured: !!a.configured,
+        sessionReviewRequired: !!a.session_review,
+        signInError: a.sign_in_error,
+      });
+      byProject.set(a.project_id, list);
+    }
+    return rows.map((p) => {
+      const activities = byProject.get(p.id) ?? [];
+      return {
+        ...p,
+        activities,
+        activity: activities.find((a) => a.id === 'default') ?? { ...defaultActivity },
+      };
+    });
   }
-  activitySecret(id: string) {
+  activitySecret(project: string, id = 'default') {
     return (
       (
-        this.db.prepare('SELECT credentials FROM project_activity WHERE project_id=?').get(id) as
-          { credentials: string | null } | undefined
+        this.db
+          .prepare('SELECT credentials FROM project_activity WHERE project_id=? AND id=?')
+          .get(project, id) as { credentials: string | null } | undefined
       )?.credentials ?? null
     );
   }

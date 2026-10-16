@@ -8,7 +8,12 @@ import { z } from 'zod';
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { DateTime } from 'luxon';
-import { settingsSchema, projectPatch, type Execution } from '../../../packages/shared/config.js';
+import {
+  settingsSchema,
+  projectPatch,
+  activityPatchSchema,
+  type Execution,
+} from '../../../packages/shared/config.js';
 import { Store } from './storage.js';
 import { random, digest, equal, vault } from './crypto.js';
 import { Supabase, Discovery, ServiceError, type Transport } from './supabase.js';
@@ -356,6 +361,104 @@ export async function createApp(config: AppConfig, transport?: Transport) {
     if (!p) throw new ServiceError('PROJECT_NOT_FOUND', 404);
     return { ...p, effective: engine.config(p) };
   });
+  function saveActivity(id: string, activityId: string, a: z.infer<typeof activityPatchSchema>) {
+    const p = s.project(id)!;
+    const existing = p.activities.find((a) => a.id === activityId);
+    if (!existing && p.activities.length >= 8)
+      throw new ServiceError('ACTIVITY_LIMIT_REACHED', 409);
+    if (a.acknowledgeSessionReview && engine.isRunning(id))
+      throw new ServiceError('PROJECT_ALREADY_RUNNING', 409);
+    if (a.enabled) {
+      if (engine.isRunning(id)) throw new ServiceError('PROJECT_ALREADY_RUNNING', 409);
+      if (!api.config()?.dataEnabled) throw new ServiceError('DATA_STRATEGY_NOT_AUTHORIZED');
+      if (!a.table || !a.column) throw new ServiceError('ACTIVITY_TABLE_AND_COLUMN_REQUIRED');
+      if (a.mode === 'test-sign-in') {
+        if (existing?.signInError && !a.testAccount)
+          throw new ServiceError('TEST_ACCOUNT_UPDATE_REQUIRED', 409);
+        const hasCredentials =
+          a.testAccount === null ? false : !!a.testAccount || !!s.activitySecret(id, activityId);
+        if (!hasCredentials) throw new ServiceError('TEST_ACCOUNT_REQUIRED');
+        if (existing?.sessionReviewRequired && !a.acknowledgeSessionReview)
+          throw new ServiceError('TEST_SESSION_REVIEW_REQUIRED', 409);
+      }
+    }
+    s.db.transaction(() => {
+      const credentials =
+        a.testAccount === undefined
+          ? s.activitySecret(id, activityId)
+          : a.testAccount === null
+            ? null
+            : box.seal({ email: a.testAccount.email, password: a.testAccount.password });
+      s.db
+        .prepare(
+          `INSERT INTO project_activity(project_id,id,name,enabled,mode,table_name,column_name,reads,credentials) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(project_id,id) DO UPDATE SET name=excluded.name,enabled=excluded.enabled,mode=excluded.mode,table_name=excluded.table_name,column_name=excluded.column_name,reads=excluded.reads,credentials=excluded.credentials`,
+        )
+        .run(
+          id,
+          activityId,
+          a.name ?? existing?.name ?? 'Additional activity',
+          Number(a.enabled),
+          a.mode,
+          a.table,
+          a.column,
+          a.reads,
+          credentials,
+        );
+      if (a.testAccount !== undefined)
+        s.db
+          .prepare('UPDATE project_activity SET sign_in_error=NULL WHERE project_id=? AND id=?')
+          .run(id, activityId);
+      if (a.acknowledgeSessionReview) {
+        s.db
+          .prepare('UPDATE project_activity SET session_review=0 WHERE project_id=? AND id=?')
+          .run(id, activityId);
+        s.log('warning', 'test_session_review_acknowledged', id, { activity: activityId });
+      }
+      s.log('info', 'optional_activity_configured', id, {
+        activity: activityId,
+        enabled: a.enabled,
+        mode: a.mode,
+        reads: a.reads,
+      });
+    })();
+  }
+  const activityParams = z.object({
+    id: z.string().regex(/^[a-z]{20}$/),
+    activityId: z.string().regex(/^(default|[a-f0-9-]{36})$/),
+  });
+  app.post('/api/projects/:id/activities', async (req, reply) => {
+    const { id } = z.object({ id: z.string() }).parse(req.params);
+    const p = s.project(id);
+    if (!p?.present) throw new ServiceError('PROJECT_NOT_FOUND', 404);
+    if (engine.isRunning(id)) throw new ServiceError('PROJECT_ALREADY_RUNNING', 409);
+    const input = z
+      .object({
+        name: z.string().trim().min(1).max(80),
+        mode: z.enum(['public-read', 'test-sign-in']).default('public-read'),
+      })
+      .strict()
+      .parse(req.body);
+    const activityId = crypto.randomUUID();
+    saveActivity(id, activityId, { ...input, enabled: false, table: null, column: null, reads: 1 });
+    return reply.code(201).send(s.project(id)!.activities.find((a) => a.id === activityId));
+  });
+  app.patch('/api/projects/:id/activities/:activityId', async (req) => {
+    const { id, activityId } = activityParams.parse(req.params);
+    if (!s.project(id)?.activities.some((a) => a.id === activityId))
+      throw new ServiceError('ACTIVITY_NOT_FOUND', 404);
+    saveActivity(id, activityId, activityPatchSchema.parse(req.body));
+    return s.project(id)!.activities.find((a) => a.id === activityId);
+  });
+  app.delete('/api/projects/:id/activities/:activityId', async (req) => {
+    const { id, activityId } = activityParams.parse(req.params);
+    const a = s.project(id)?.activities.find((a) => a.id === activityId);
+    if (!a) throw new ServiceError('ACTIVITY_NOT_FOUND', 404);
+    if (engine.isRunning(id)) throw new ServiceError('PROJECT_ALREADY_RUNNING', 409);
+    if (a.sessionReviewRequired) throw new ServiceError('TEST_SESSION_REVIEW_REQUIRED', 409);
+    s.db.prepare('DELETE FROM project_activity WHERE project_id=? AND id=?').run(id, activityId);
+    s.log('info', 'optional_activity_removed', id, { activity: activityId });
+    return { ok: true };
+  });
   app.patch('/api/projects/:id', async (req) => {
     const { id } = z.object({ id: z.string() }).parse(req.params),
       input = projectPatch.parse(req.body),
@@ -368,23 +471,6 @@ export async function createApp(config: AppConfig, transport?: Transport) {
       !(input.safeTable === undefined ? p.safe_table : input.safeTable)
     )
       throw new ServiceError('SAFE_TABLE_REQUIRED');
-    const a = input.activity;
-    if (a?.acknowledgeSessionReview && engine.isRunning(id))
-      throw new ServiceError('PROJECT_ALREADY_RUNNING', 409);
-    if (a?.enabled) {
-      if (engine.isRunning(id)) throw new ServiceError('PROJECT_ALREADY_RUNNING', 409);
-      if (!api.config()?.dataEnabled) throw new ServiceError('DATA_STRATEGY_NOT_AUTHORIZED');
-      if (!a.table || !a.column) throw new ServiceError('ACTIVITY_TABLE_AND_COLUMN_REQUIRED');
-      if (a.mode === 'test-sign-in') {
-        if (p.activity.signInError && !a.testAccount)
-          throw new ServiceError('TEST_ACCOUNT_UPDATE_REQUIRED', 409);
-        const hasCredentials =
-          a.testAccount === null ? false : !!a.testAccount || !!s.activitySecret(id);
-        if (!hasCredentials) throw new ServiceError('TEST_ACCOUNT_REQUIRED');
-        if (p.activity.sessionReviewRequired && !a.acknowledgeSessionReview)
-          throw new ServiceError('TEST_SESSION_REVIEW_REQUIRED', 409);
-      }
-    }
     s.db.transaction(() => {
       s.db
         .prepare('UPDATE projects SET enabled=?,overrides=?,strategy=?,safe_table=? WHERE id=?')
@@ -399,30 +485,7 @@ export async function createApp(config: AppConfig, transport?: Transport) {
           input.safeTable === undefined ? p.safe_table : input.safeTable,
           id,
         );
-      if (a) {
-        const credentials =
-          a.testAccount === undefined
-            ? s.activitySecret(id)
-            : a.testAccount === null
-              ? null
-              : box.seal({ email: a.testAccount.email, password: a.testAccount.password });
-        s.db
-          .prepare(
-            `INSERT INTO project_activity(project_id,enabled,mode,table_name,column_name,reads,credentials) VALUES(?,?,?,?,?,?,?) ON CONFLICT(project_id) DO UPDATE SET enabled=excluded.enabled,mode=excluded.mode,table_name=excluded.table_name,column_name=excluded.column_name,reads=excluded.reads,credentials=excluded.credentials`,
-          )
-          .run(id, Number(a.enabled), a.mode, a.table, a.column, a.reads, credentials);
-        if (a.testAccount !== undefined)
-          s.db.prepare('UPDATE project_activity SET sign_in_error=NULL WHERE project_id=?').run(id);
-        if (a.acknowledgeSessionReview) {
-          s.db.prepare('UPDATE project_activity SET session_review=0 WHERE project_id=?').run(id);
-          s.log('warning', 'test_session_review_acknowledged', id);
-        }
-        s.log('info', 'optional_activity_configured', id, {
-          enabled: a.enabled,
-          mode: a.mode,
-          reads: a.reads,
-        });
-      }
+      if (input.activity) saveActivity(id, 'default', input.activity);
       s.db
         .prepare("UPDATE jobs SET state='cancelled' WHERE project_id=? AND state='pending'")
         .run(id);

@@ -1637,3 +1637,105 @@ dialog.modal {
 .session-review {
   padding: 18px 0;
 }
+
+.activity-list {
+  margin-top: 24px;
+}
+.activity-item {
+  border-top: 1px solid var(--border);
+}
+.activity-item:last-child {
+  border-bottom: 1px solid var(--border);
+}
+.activity-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 0;
+}
+.activity-expand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 8px 0;
+}
+.activity-expand span {
+  min-width: 0;
+}
+.activity-expand strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.activity-expand small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.activity-expand svg {
+  flex-shrink: 0;
+  transform: rotate(-90deg);
+  transition: transform 150ms;
+}
+.activity-expand svg.rotated {
+  transform: rotate(0deg);
+}
+.activity-toggle.setting-switch {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.activity-body {
+  padding: 8px 0 24px 29px;
+}
+.activity-editor > form > .field {
+  margin-bottom: 24px;
+}
+.activity-body > .button {
+  margin-top: 20px;
+}
+.activity-empty {
+  padding: 24px 0;
+  color: var(--muted);
+}
+.activity-footer {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+}
+.activity-footer small,
+.activity-note {
+  color: var(--muted);
+}
+.activity-note {
+  font-size: 12px;
+  margin-top: 16px;
+}
+.activity-remove-confirm {
+  border-top: 1px solid var(--border);
+  margin-top: 20px;
+  padding-top: 12px;
+}
+@media (max-width: 600px) {
+  .activity-body {
+    padding-left: 0;
+  }
+  .activity-row {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .activity-expand {
+    flex-basis: 65%;
+  }
+}

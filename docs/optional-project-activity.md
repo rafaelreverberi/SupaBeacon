@@ -1,6 +1,6 @@
 # Optional activity per project
 
-This feature is **off for every existing and newly discovered project**. It adds explicitly configured application checks after a successful normal heartbeat. It is separate from the normal Management API / HEAD strategy and never changes another project's configuration.
+New activities are **off by default**. Existing configured activities retain their settings and enabled state when upgrading. It adds explicitly configured application checks after a successful normal heartbeat. It is separate from the normal Management API / HEAD strategy and never changes another project's configuration.
 
 ## Choose a mode
 
@@ -20,11 +20,11 @@ This provider scope is broad. SupaBeacon lists key metadata with `reveal=false`,
 
 ## 2. Configure one project
 
-1. Open **Projects → your project → Optional project activity**.
-2. Choose **Read one safe column** or **Test-account sign-in → read → local sign-out**.
+1. Open **Projects → your project → Additional activity**. Click **Add activity**, then give the new entry a descriptive name. Each project supports up to eight independent activities.
+2. Expand its row to edit the details. Choose **Read one safe column** or **Test-account sign-in → read → local sign-out**.
 3. Click **Load tables and columns**, select an **existing safe table** from `public`, then select a **small, nonsensitive column** such as an ID or number. Column types appear in the list. Loading uses the existing `database:read` OAuth permission and a fixed metadata-only query; it does not fetch application rows, sign in or enable activity. It runs only when you click Load/Reload, not on a schedule. Wildcards, arbitrary SQL, RPCs and arbitrary URLs are not supported.
 4. Select **1–3 additional reads per execution**.
-5. Enable **additional activity for this project**, then save.
+5. Check **Enable when saving**, then save. Later, use the On/Off switch in that row to toggle only this activity. Click the row title/arrow to expand or collapse its editor. Save edits before closing the details.
 6. Run **Run heartbeat / test connection** and wait for the final result. Execution details distinguish the normal heartbeat, each additional read, sign-in and sign-out.
 
 Existing RLS and column/table grants remain in effect. An empty result may be legitimate under RLS or for an empty table. SupaBeacon does not create a table, expose a private table, alter RLS or modify rows. Result validation requires at most one row containing only the selected column, and caps the JSON response at 64 KiB. Values are not written to SQLite or logs; they are discarded after validation. This is not a claim of cryptographic memory erasure.
@@ -37,7 +37,7 @@ If loading fails, no tables exist or your schema is unusually large (over 2,000 
 
 Use an **existing dedicated test account** in that project's Supabase Auth service, with minimal privileges/RLS access and a unique password. Do not use your personal, administrator or a production customer's account. SupaBeacon does not register or delete users. You explicitly confirm that newly entered credentials belong to a test account you control.
 
-Enter its email and password in the project form. Both are write-only and encrypted using the instance's AES-GCM vault. Leave both blank when saving other settings to retain them. **Remove test credentials** clears the saved account credentials and disables optional activity; it does not delete the remote user.
+Enter its email and password in that activity’s form. Credentials belong to this activity and are not shared automatically with other entries. Both are write-only and encrypted using the instance's AES-GCM vault. Leave both blank when saving other settings to retain them. **Remove test credentials** clears the saved account credentials and disables optional activity; it does not delete the remote user.
 
 The server uses the documented [password sign-in flow](https://supabase.com/docs/reference/javascript/auth-signinwithpassword), passes the new access JWT to the bounded table reads, and requests [sign-out with scope=local](https://supabase.com/docs/reference/javascript/auth-signout). This targets only the new session, never the account's other sessions. Refresh tokens are discarded and never used. Access JWTs remain valid until their normal expiry even after logout; SupaBeacon does not persist them.
 
@@ -51,6 +51,12 @@ Review/revoke the dedicated account's uncertain session through your normal Supa
 
 There is no promise of successful cleanup after network/power loss. A pending review is deliberately preserved across application restarts. After restoring an older backup, review the dedicated account’s remote sessions too: restoring local history cannot roll back remote Auth state. You can disable the extra activity while investigating, and the normal heartbeat remains independently configured.
 
+## Multiple activities and removal
+
+Enabled entries run sequentially in their creation order, once per successful primary heartbeat, on the existing schedule and on manual runs. Switched-off entries produce no optional requests. A failure in one entry does not suppress the remaining independent checks; the combined optional result is failed if any enabled entry fails. Request details preserve the activity’s ID and name at execution time, including after renaming/removal. The footer sums the configured daily read/Auth budget across enabled entries.
+
+Every entry has independent mode, table/column, credentials and login/session-review blocks. A successful logout in one entry cannot clear another entry’s uncertainty. Create, enable/reconfigure and remove operations are blocked while the project is executing; switching an existing activity off remains possible and any issued test session still receives a cleanup attempt. Deletion is blocked until an uncertain session has been reviewed. Expand the entry, click **Remove activity**, then confirm locally; this removes its configuration and encrypted credentials, not the remote account or historical executions.
+
 ## Counts and budgets
 
 If the project runs twice daily and you select two additional reads:
@@ -59,10 +65,10 @@ If the project runs twice daily and you select two additional reads:
 - Test-account mode adds those four reads plus two sign-ins and two sign-outs daily.
 - Existing normal heartbeat requests, status checks, key lookups, manual runs and normal heartbeat retries remain separate.
 
-Optional activity runs once after a complete successful heartbeat, not once per heartbeat request. Failed primary heartbeats skip the optional flow. Additional activity requests are not retried automatically; error details are visible. History records request kind, HTTP status, duration, row count and sanitized error codes. A sign-in alone never counts as a successful database read. A failed extra step makes the overall execution failed while preserving confirmed primary database success.
+Each enabled activity runs once after a complete successful heartbeat, not once per heartbeat request. Failed primary heartbeats skip the optional flow. Additional activity requests are not retried automatically; error details are visible. History records request kind, HTTP status, duration, row count and sanitized error codes. A sign-in alone never counts as a successful database read. A failed extra step makes the overall execution failed while preserving confirmed primary database success.
 
 ## Verification boundary
 
-Both modes, credential encryption/redaction, per-project isolation, cleanup on errors/pause/rate limits, bounded response validation and session-review blocking are exercised with controlled provider responses. Real Auth test credentials and a safe Data API table have not been supplied for live verification. The user's existing projects remain on their previous configuration with extra activity disabled.
+Both modes, credential encryption/redaction, per-project isolation, cleanup on errors/pause/rate limits, bounded response validation and session-review blocking are exercised with controlled provider responses. The owner subsequently configured a real test account and ran the original single activity: the stored execution showed two successful heartbeats, a successful sign-in, a successful empty read and confirmed local sign-out. An empty response does not establish which rows the test account may see. The new multi-activity flow is verified with controlled provider responses; this update does not enable extra activities or change existing credentials automatically.
 
 Rejected credentials and detected MFA requirements block future test sign-ins until new test-account credentials are explicitly saved. This block is distinct from uncertain session cleanup. Session-review acknowledgement cannot be saved while that project is executing.

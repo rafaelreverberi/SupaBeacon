@@ -1,32 +1,35 @@
 import { useState, type FormEvent } from 'react';
-import { ShieldCheck, Activity } from 'lucide-react';
+import { ShieldCheck, Activity, ChevronDown, Plus, Trash2 } from 'lucide-react';
 import type {
   Project,
   Settings,
   ProjectActivity as ActivityConfig,
   ActivitySchema,
+  SavedActivity,
 } from '../../../../packages/shared/config';
 import type { Action } from '../lib/types';
 import { api } from '../api';
 import { Badge, Field, Button } from './ui';
-export function ProjectActivity({
+function ActivityEditor({
+  activity,
   project,
   settings,
   dataEnabled,
   busy,
   action,
 }: {
+  activity: SavedActivity;
   project: Project;
   settings: Settings;
   dataEnabled: boolean;
   busy: boolean;
   action: Action;
 }) {
-  const [enabled, setEnabled] = useState(project.activity.enabled);
-  const [mode, setMode] = useState<ActivityConfig['mode']>(project.activity.mode);
-  const [reads, setReads] = useState(project.activity.reads);
-  const [table, setTable] = useState(project.activity.table ?? '');
-  const [column, setColumn] = useState(project.activity.column ?? '');
+  const [enabled, setEnabled] = useState(activity.enabled);
+  const [mode, setMode] = useState<ActivityConfig['mode']>(activity.mode);
+  const [reads, setReads] = useState(activity.reads);
+  const [table, setTable] = useState(activity.table ?? '');
+  const [column, setColumn] = useState(activity.column ?? '');
   const [schema, setSchema] = useState<ActivitySchema | null>(null);
   const [loadingSchema, setLoadingSchema] = useState(false);
   const [schemaError, setSchemaError] = useState('');
@@ -43,6 +46,8 @@ export function ProjectActivity({
       setLoadingSchema(false);
     }
   }
+  const update = ({ activity: value }: { activity: unknown }) =>
+    api(`/projects/${project.id}/activities/${activity.id}`, 'PATCH', value);
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget,
@@ -50,8 +55,9 @@ export function ProjectActivity({
     const email = String(f.get('email') || ''),
       password = String(f.get('password') || '');
     await action(async () => {
-      await api(`/projects/${project.id}`, 'PATCH', {
+      await update({
         activity: {
+          name: String(f.get('name') || ''),
           enabled,
           mode,
           reads,
@@ -73,33 +79,19 @@ export function ProjectActivity({
   const disable = () =>
     void action(
       () =>
-        api(`/projects/${project.id}`, 'PATCH', {
+        update({
           activity: {
             enabled: false,
-            mode: project.activity.mode,
-            table: project.activity.table,
-            column: project.activity.column,
-            reads: project.activity.reads,
+            mode: activity.mode,
+            table: activity.table,
+            column: activity.column,
+            reads: activity.reads,
           },
         }),
       'Optional activity disabled',
     );
   return (
-    <section className="settings-section optional-activity">
-      <div className="section-title">
-        <h2>
-          <Activity size={17} />
-          Optional project activity
-        </h2>
-        <Badge tone={project.activity.enabled ? 'emerald' : 'neutral'}>
-          {project.activity.enabled ? 'Enabled for this project' : 'Off by default'}
-        </Badge>
-      </div>
-      <p>
-        Add a real, bounded application-facing read after each successful heartbeat. Values are
-        discarded after validation. These checks do not disguise traffic or prove prevention of
-        project pausing.
-      </p>
+    <div className="activity-editor">
       {!dataEnabled && (
         <div className="info-line">
           <ShieldCheck size={16} />
@@ -113,14 +105,14 @@ export function ProjectActivity({
           </p>
         </div>
       )}
-      {project.activity.signInError && (
+      {activity.signInError && (
         <p className="error" role="alert">
-          Test sign-in was rejected ({project.activity.signInError}). Automatic test sign-ins are
-          blocked until you save updated dedicated-account credentials. MFA/CAPTCHA/SSO requirements
-          must be handled in your own client.
+          Test sign-in was rejected ({activity.signInError}). Automatic test sign-ins are blocked
+          until you save updated dedicated-account credentials. MFA/CAPTCHA/SSO requirements must be
+          handled in your own client.
         </p>
       )}
-      {project.activity.sessionReviewRequired && (
+      {activity.sessionReviewRequired && (
         <p className="error" role="alert">
           A test sign-in may have created a session whose logout was not confirmed. Further test
           sign-ins are blocked. Inspect/revoke that dedicated account’s session in Supabase, then
@@ -130,10 +122,8 @@ export function ProjectActivity({
       <form onSubmit={(e) => void save(e)}>
         <label className="setting-switch">
           <span>
-            Enable additional activity for this project
-            <small>
-              Independent of other projects. Uses this project’s existing heartbeat schedule.
-            </small>
+            Enable when saving
+            <small>Save these details and this activity’s enabled state together.</small>
           </span>
           <input
             type="checkbox"
@@ -143,6 +133,9 @@ export function ProjectActivity({
           />
           <span className="switch" />
         </label>
+        <Field label="Activity name">
+          <input name="name" required maxLength={80} defaultValue={activity.name} />
+        </Field>
         <div className="form-grid">
           <Field label="Additional activity mode">
             <select
@@ -294,7 +287,7 @@ export function ProjectActivity({
               </p>
             </div>
             <p>
-              {project.activity.credentialsConfigured
+              {activity.credentialsConfigured
                 ? 'Test credentials are stored encrypted. Leave both fields empty to keep them.'
                 : 'No test credentials configured. Enter both fields to enable this mode.'}
             </p>
@@ -304,7 +297,7 @@ export function ProjectActivity({
                   type="email"
                   name="email"
                   autoComplete="off"
-                  required={enabled && !project.activity.credentialsConfigured}
+                  required={enabled && !activity.credentialsConfigured}
                   maxLength={254}
                 />
               </Field>
@@ -316,7 +309,7 @@ export function ProjectActivity({
                   type="password"
                   name="password"
                   autoComplete="new-password"
-                  required={enabled && !project.activity.credentialsConfigured}
+                  required={enabled && !activity.credentialsConfigured}
                   maxLength={256}
                 />
               </Field>
@@ -327,14 +320,7 @@ export function ProjectActivity({
             </label>
           </>
         )}
-        {project.activity.signInError && (
-          <p className="error" role="alert">
-            Test sign-in was rejected ({project.activity.signInError}). Automatic test sign-ins are
-            blocked until you save updated dedicated-account credentials. MFA/CAPTCHA/SSO
-            requirements must be handled in your own client.
-          </p>
-        )}
-        {project.activity.sessionReviewRequired && (
+        {activity.sessionReviewRequired && (
           <label className="checkbox session-review">
             <input type="checkbox" name="review" />I have reviewed/revoked the uncertain test
             session in Supabase and authorize clearing this local block.
@@ -355,25 +341,25 @@ export function ProjectActivity({
           <button className="button" disabled={busy || (enabled && !dataEnabled)}>
             Save optional activity
           </button>
-          {project.activity.enabled && (
+          {activity.enabled && (
             <Button secondary disabled={busy} onClick={disable}>
               Disable optional activity
             </Button>
           )}
-          {project.activity.credentialsConfigured && (
+          {activity.credentialsConfigured && (
             <Button
               secondary
               disabled={busy}
               onClick={() =>
                 void action(
                   () =>
-                    api(`/projects/${project.id}`, 'PATCH', {
+                    update({
                       activity: {
                         enabled: false,
                         mode,
                         reads,
-                        table: project.activity.table,
-                        column: project.activity.column,
+                        table: activity.table,
+                        column: activity.column,
                         testAccount: null,
                       },
                     }),
@@ -386,6 +372,171 @@ export function ProjectActivity({
           )}
         </div>
       </form>
+    </div>
+  );
+}
+
+type ActivityProps = {
+  project: Project;
+  settings: Settings;
+  dataEnabled: boolean;
+  busy: boolean;
+  action: Action;
+};
+export function ProjectActivity(props: ActivityProps) {
+  const { project, settings, busy, dataEnabled, action } = props;
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [pending, setPending] = useState<Record<string, boolean>>({});
+  const active = project.activities.filter((a) => a.enabled);
+  const base = (a: SavedActivity) => ({
+    enabled: a.enabled,
+    mode: a.mode,
+    table: a.table,
+    column: a.column,
+    reads: a.reads,
+  });
+  async function toggle(a: SavedActivity) {
+    setPending((current) => ({ ...current, [a.id]: !a.enabled }));
+    await action(
+      () =>
+        api(`/projects/${project.id}/activities/${a.id}`, 'PATCH', {
+          ...base(a),
+          enabled: !a.enabled,
+        }),
+      a.enabled ? 'Activity disabled' : 'Activity enabled',
+    );
+    setPending((current) => {
+      const next = { ...current };
+      delete next[a.id];
+      return next;
+    });
+  }
+  async function add() {
+    await action(async () => {
+      const a = await api<SavedActivity>(`/projects/${project.id}/activities`, 'POST', {
+        name: `Activity ${project.activities.length + 1}`,
+      });
+      setExpanded(a.id);
+    }, 'Activity added · configure it before enabling');
+  }
+  return (
+    <section className="settings-section optional-activity">
+      <div className="section-title">
+        <h2>
+          <Activity size={17} /> Additional activity
+        </h2>
+        <Badge tone={active.length ? 'emerald' : 'neutral'}>
+          {active.length} of {project.activities.length} enabled
+        </Badge>
+      </div>
+      <p>
+        Build your own list of checks. Each enabled activity runs after a successful heartbeat,
+        automatically and on manual runs. Open a row to edit its details.
+      </p>
+      <div className="activity-list">
+        {project.activities.map((a) => (
+          <div className="activity-item" key={a.id}>
+            <div className="activity-row">
+              <button
+                type="button"
+                className="activity-expand"
+                aria-expanded={expanded === a.id}
+                aria-controls={`activity-${a.id}`}
+                onClick={() => setExpanded(expanded === a.id ? null : a.id)}
+              >
+                <ChevronDown size={17} className={expanded === a.id ? 'rotated' : ''} />
+                <span>
+                  <strong>{a.name}</strong>
+                  <small>
+                    {a.mode === 'public-read' ? 'Read data' : 'Sign in → read → sign out'} ·{' '}
+                    {a.table && a.column ? `${a.table}.${a.column}` : 'Needs configuration'} ·{' '}
+                    {a.reads} read{a.reads === 1 ? '' : 's'}
+                  </small>
+                </span>
+              </button>
+              {(a.sessionReviewRequired || a.signInError) && (
+                <Badge tone="danger">Needs attention</Badge>
+              )}
+              <label className="activity-toggle setting-switch">
+                <span>{(pending[a.id] ?? a.enabled) ? 'On' : 'Off'}</span>
+                <input
+                  type="checkbox"
+                  aria-label={`Enable ${a.name}`}
+                  checked={pending[a.id] ?? a.enabled}
+                  disabled={busy || (!a.enabled && !dataEnabled)}
+                  onChange={() => void toggle(a)}
+                />
+                <span className="switch" />
+              </label>
+            </div>
+            {expanded === a.id && (
+              <div id={`activity-${a.id}`} className="activity-body">
+                <ActivityEditor key={JSON.stringify(a)} {...props} activity={a} />
+                {removing === a.id ? (
+                  <div className="activity-remove-confirm">
+                    <p>
+                      Remove this activity and its saved credentials? The remote test account and
+                      execution history stay intact.
+                    </p>
+                    <div className="inline-actions">
+                      <Button secondary disabled={busy} onClick={() => setRemoving(null)}>
+                        Keep activity
+                      </Button>
+                      <Button
+                        secondary
+                        disabled={busy}
+                        onClick={() =>
+                          void action(async () => {
+                            await api(`/projects/${project.id}/activities/${a.id}`, 'DELETE');
+                            setRemoving(null);
+                            setExpanded(null);
+                          }, 'Activity removed')
+                        }
+                      >
+                        Confirm removal
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button
+                    secondary
+                    disabled={busy || a.sessionReviewRequired}
+                    onClick={() => setRemoving(a.id)}
+                  >
+                    <Trash2 size={14} /> Remove activity
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      {!project.activities.length && (
+        <div className="activity-empty">
+          No extra checks yet. Add a data read or a test-account sign-in flow. New activities start
+          switched off.
+        </div>
+      )}
+      <div className="activity-footer">
+        <Button
+          secondary
+          disabled={busy || project.activities.length >= 8}
+          onClick={() => void add()}
+        >
+          <Plus size={16} /> Add activity
+        </Button>
+        <small>
+          {project.activities.length}/8 activities ·{' '}
+          {active.reduce((n, a) => n + a.reads, 0) * settings.frequency} additional reads/day ·{' '}
+          {active.filter((a) => a.mode === 'test-sign-in').length * settings.frequency * 2} Auth
+          requests/day
+        </small>
+      </div>
+      <p className="activity-note">
+        Values are discarded after validation. These checks do not guarantee prevention of project
+        pausing.
+      </p>
     </section>
   );
 }

@@ -1,11 +1,15 @@
 import { z } from 'zod';
 import { boundedJson } from './response.js';
-import type { Project } from '../../../packages/shared/config.js';
+import type { Project, SavedActivity } from '../../../packages/shared/config.js';
 import { Supabase, ServiceError } from './supabase.js';
 
 /** A bounded application-read check, with optional dedicated-account authentication. */
 export class ActivityRunner {
-  constructor(private api: Supabase) {}
+  constructor(
+    private api: Supabase,
+    private activityId = 'default',
+    private activityName = 'Additional activity',
+  ) {}
   private record(
     id: string,
     project: string,
@@ -20,9 +24,20 @@ export class ActivityRunner {
     s.db.transaction(() => {
       s.db
         .prepare(
-          'INSERT INTO execution_requests(execution_id,at,status,duration,ok,error,kind,row_count) VALUES(?,?,?,?,?,?,?,?)',
+          'INSERT INTO execution_requests(execution_id,at,status,duration,ok,error,kind,row_count,activity_id,activity_name) VALUES(?,?,?,?,?,?,?,?,?,?)',
         )
-        .run(id, at, status, Date.now() - at, Number(ok), error, kind, rows);
+        .run(
+          id,
+          at,
+          status,
+          Date.now() - at,
+          Number(ok),
+          error,
+          kind,
+          rows,
+          this.activityId,
+          this.activityName,
+        );
       s.db
         .prepare(
           'UPDATE executions SET activity_successes=activity_successes+?,activity_reads=activity_reads+?,database_ok=CASE WHEN ? THEN 1 ELSE database_ok END WHERE id=?',
@@ -38,6 +53,7 @@ export class ActivityRunner {
     })();
     s.log(ok ? 'info' : 'warning', `${kind}_${ok ? 'succeeded' : 'failed'}`, project, {
       execution: id,
+      activity: this.activityId,
       ...(error ? { code: error } : {}),
       ...(rows !== null ? { rows } : {}),
     });
@@ -83,8 +99,8 @@ export class ActivityRunner {
       throw fault;
     }
   }
-  async run(id: string, p: Project, shouldContinue: () => boolean) {
-    const a = p.activity,
+  async run(id: string, p: Project, shouldContinue: () => boolean, profile?: SavedActivity) {
+    const a = profile ?? p.activity,
       s = this.api.store;
     if (!a.enabled) return;
     s.db.prepare("UPDATE executions SET activity_state='running' WHERE id=?").run(id);
@@ -109,11 +125,13 @@ export class ActivityRunner {
       publicKey = await this.api.publicKey(p.id);
       if (a.mode === 'test-sign-in') {
         if (!shouldContinue()) throw new ServiceError('EXECUTION_STOPPED', 409);
-        const encrypted = s.activitySecret(p.id);
+        const encrypted = s.activitySecret(p.id, this.activityId);
         if (!encrypted) throw new ServiceError('TEST_ACCOUNT_REQUIRED');
         const account = this.api.box.open<{ email: string; password: string }>(encrypted);
         // Persist uncertainty BEFORE the request. A crash or lost response must not accumulate logins.
-        s.db.prepare('UPDATE project_activity SET session_review=1 WHERE project_id=?').run(p.id);
+        s.db
+          .prepare('UPDATE project_activity SET session_review=1 WHERE project_id=? AND id=?')
+          .run(p.id, this.activityId);
         stage = 'sign-in';
         await this.call(
           id,
@@ -183,14 +201,16 @@ export class ActivityRunner {
       error = e instanceof ServiceError ? e : new ServiceError('ACTIVITY_RESPONSE_INVALID', 502);
       // A definitive credential/rate-limit rejection did not create a session; network/5xx is uncertain.
       if (stage === 'sign-in' && !token && [400, 401, 403, 422, 429].includes(error.status))
-        s.db.prepare('UPDATE project_activity SET session_review=0 WHERE project_id=?').run(p.id);
+        s.db
+          .prepare('UPDATE project_activity SET session_review=0 WHERE project_id=? AND id=?')
+          .run(p.id, this.activityId);
       if (
         (stage === 'sign-in' && [400, 401, 403, 422].includes(error.status)) ||
         error.code === 'TEST_ACCOUNT_MFA_UNSUPPORTED'
       )
         s.db
-          .prepare('UPDATE project_activity SET sign_in_error=? WHERE project_id=?')
-          .run(error.code, p.id);
+          .prepare('UPDATE project_activity SET sign_in_error=? WHERE project_id=? AND id=?')
+          .run(error.code, p.id, this.activityId);
     } finally {
       if (token && publicKey) {
         try {
@@ -208,9 +228,13 @@ export class ActivityRunner {
             },
             true,
           );
-          s.db.prepare('UPDATE project_activity SET session_review=0 WHERE project_id=?').run(p.id);
+          s.db
+            .prepare('UPDATE project_activity SET session_review=0 WHERE project_id=? AND id=?')
+            .run(p.id, this.activityId);
         } catch {
-          s.db.prepare('UPDATE project_activity SET session_review=1 WHERE project_id=?').run(p.id);
+          s.db
+            .prepare('UPDATE project_activity SET session_review=1 WHERE project_id=? AND id=?')
+            .run(p.id, this.activityId);
           error = new ServiceError('TEST_SESSION_REVIEW_REQUIRED', 409);
         }
       }

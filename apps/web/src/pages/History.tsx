@@ -28,6 +28,7 @@ export function History({ project }: { project?: string }) {
             ok: number;
             error: string | null;
             kind: string;
+            activity_name: string | null;
             row_count: number | null;
           }[];
         }
@@ -126,6 +127,7 @@ export function History({ project }: { project?: string }) {
             <div className="request-detail" key={r.id}>
               <span>{time(r.at)}</span>
               <code>{r.kind.replaceAll('_', ' ')}</code>
+              {r.activity_name && <span>{r.activity_name}</span>}
               <Badge tone={r.ok ? 'emerald' : 'danger'}>HTTP {r.status ?? '—'}</Badge>
               <span>{r.duration} ms</span>
               <code>

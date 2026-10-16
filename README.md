@@ -139,7 +139,7 @@ Backend tests and browser tests use injected, controlled Supabase responses and 
 
 **What does a “request” mean?** The request estimate counts configured heartbeat database requests. Discovery, provider-status checks, optional key lookups, manual executions, authentication refreshes and retries add HTTP requests. Execution details list each attempt and distinguish confirmed database activity from plain HTTP success.
 
-**Can I add more activity per project?** Yes: [Optional project activity](docs/optional-project-activity.md) adds bounded real reads and an opt-in dedicated test-account sign-in flow. No users are created/deleted; received row values and Auth tokens are not persisted. It does not guarantee prevention of pausing.
+**Can I add more activity per project?** Yes: [Additional activity](docs/optional-project-activity.md) supports up to eight named checks per project, each with its own On/Off switch and expandable editor: bounded real reads or an opt-in dedicated test-account sign-in flow. No users are created/deleted; received row values and Auth tokens are not persisted. It does not guarantee prevention of pausing.
 
 **Can I use any table or RPC?** The normal optional Data API strategy supports existing safe tables using HEAD and `limit=1`. The separate project activity feature uses a bounded GET on one explicitly chosen safe column. Both respect existing RLS. Arbitrary URLs, RPC execution, private table exposure, schema changes and customer-data writes are not supported. RPCs can have side effects, so they are excluded.
 

@@ -390,7 +390,7 @@ export function ProjectPage({
         </form>
       </section>
       <ProjectActivity
-        key={JSON.stringify(p.activity)}
+        key={p.id}
         project={p}
         settings={p.effective}
         dataEnabled={dataEnabled}

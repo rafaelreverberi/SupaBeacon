@@ -50,8 +50,9 @@ test('protected onboarding, settings, project actions, history, logs, mobile and
   ).toBeVisible();
   await expect(page.getByRole('cell', { name: 'Succeeded', exact: true })).toBeVisible();
   await expect(page.locator('.run-result .badge')).toHaveText('success');
-  await expect(page.getByLabel('Enable additional activity for this project')).not.toBeChecked();
-  await page.getByLabel('Enable additional activity for this project').check();
+  await page.getByRole('button', { name: 'Add activity', exact: true }).click();
+  await expect(page.getByLabel('Enable when saving')).not.toBeChecked();
+  await page.getByLabel('Enable when saving').check();
   await page.route('**/activity-schema', (route) =>
     route.fulfill({
       status: 403,
@@ -83,7 +84,9 @@ test('protected onboarding, settings, project actions, history, logs, mobile and
     page.getByRole('status').filter({ hasText: 'Optional project activity saved' }),
   ).toBeVisible();
   await page.reload();
-  await expect(page.getByLabel('Enable additional activity for this project')).toBeChecked();
+  await expect(page.getByLabel('Enable Activity 1', { exact: true })).toBeChecked();
+  await page.getByRole('button', { name: /^Activity 1/ }).click();
+  await expect(page.getByLabel('Enable when saving')).toBeChecked();
   await page.getByRole('button', { name: 'Run heartbeat / test connection' }).click();
   await expect(page.locator('.run-result')).toContainText(
     'Additional activity: success · 2 reads · 2 HTTP requests',
@@ -111,9 +114,38 @@ test('protected onboarding, settings, project actions, history, logs, mobile and
     .locator('.optional-activity')
     .screenshot({ path: 'test-results/optional-project-activity.png' });
   await page.getByRole('button', { name: 'Disable optional activity', exact: true }).click();
-  await expect(page.getByLabel('Enable additional activity for this project')).not.toBeChecked();
+  await expect(page.getByLabel('Enable when saving')).not.toBeChecked();
   await page.getByRole('button', { name: 'Remove test credentials', exact: true }).click();
   await expect(page.getByText('No test credentials configured.', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: /^Activity 1/ }).click();
+  await expect(page.getByLabel('Activity name')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Add activity', exact: true }).click();
+  await page.getByLabel('Activity name').fill('Extra read');
+  await page.getByLabel('Enter names manually', { exact: true }).check();
+  await page.getByLabel('Activity table', { exact: true }).fill('healthcheck');
+  await page.getByLabel('Safe column to read', { exact: true }).fill('id');
+  await page.getByRole('button', { name: 'Save optional activity', exact: true }).click();
+  await page.getByLabel('Enable Extra read', { exact: true }).check();
+  await expect(page.getByLabel('Enable Activity 1', { exact: true })).not.toBeChecked();
+  await page.getByRole('button', { name: /^Extra read/ }).click();
+  await page
+    .locator('.optional-activity')
+    .screenshot({ path: 'test-results/activity-list-collapsed.png' });
+  const desktopSize = page.viewportSize()!;
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page
+    .locator('.optional-activity')
+    .screenshot({ path: 'test-results/activity-list-mobile.png' });
+  await page.setViewportSize(desktopSize);
+  await page.getByRole('button', { name: 'Run heartbeat / test connection' }).click();
+  await expect(page.locator('.run-result')).toContainText(
+    'Additional activity: success · 1 reads · 1 HTTP requests',
+  );
+  await page.getByRole('button', { name: /^Extra read/ }).click();
+  await page.getByRole('button', { name: 'Remove activity', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm removal', exact: true }).click();
+  await expect(page.getByRole('button', { name: /^Extra read/ })).toHaveCount(0);
   await page.locator('td .mono').first().click();
   await expect(page.getByRole('dialog', { name: 'Execution details' })).toBeVisible();
   await page.keyboard.press('Escape');

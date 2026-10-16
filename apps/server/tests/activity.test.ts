@@ -540,3 +540,190 @@ test('schema picker surfaces denied/invalid/oversized schemas and legitimate emp
     else assert.ok(!r.body.includes('private.data'));
   }
 });
+
+async function addActivity(f: Awaited<ReturnType<typeof fixture>>, name: string) {
+  const r = await f.app.inject({
+    method: 'POST',
+    url: `/api/projects/${ref}/activities`,
+    headers: f.headers,
+    payload: { name },
+  });
+  assert.equal(r.statusCode, 201);
+  return r.json() as { id: string; enabled: boolean };
+}
+function patchActivity(
+  f: Awaited<ReturnType<typeof fixture>>,
+  id: string,
+  activity: Record<string, unknown>,
+) {
+  return f.app.inject({
+    method: 'PATCH',
+    url: `/api/projects/${ref}/activities/${id}`,
+    headers: f.headers,
+    payload: activity,
+  });
+}
+test('multiple activities run in order, remain isolated and can be independently disabled and removed', async (t) => {
+  const f = await fixture(t);
+  await f.patch({ ...baseActivity, name: 'First read' });
+  const second = await addActivity(f, 'Second read');
+  assert.equal(second.enabled, false);
+  assert.equal((await patchActivity(f, second.id, { ...baseActivity, reads: 2 })).statusCode, 200);
+  const e = await f.run();
+  assert.equal(e.state, 'success');
+  assert.equal(e.activity_reads, 3);
+  const steps = f.store.db
+    .prepare(
+      "SELECT activity_id,activity_name FROM execution_requests WHERE execution_id=? AND kind='activity_read' ORDER BY id",
+    )
+    .all(e.id);
+  assert.deepEqual(steps, [
+    { activity_id: 'default', activity_name: 'First read' },
+    { activity_id: second.id, activity_name: 'Second read' },
+    { activity_id: second.id, activity_name: 'Second read' },
+  ]);
+  await patchActivity(f, 'default', { ...baseActivity, enabled: false });
+  const e2 = await f.run();
+  assert.equal(e2.activity_reads, 2);
+  assert.equal(f.store.project(ref)?.activities.find((a) => a.id === second.id)?.enabled, true);
+  const removed = await f.app.inject({
+    method: 'DELETE',
+    url: `/api/projects/${ref}/activities/${second.id}`,
+    headers: f.headers,
+  });
+  assert.equal(removed.statusCode, 200);
+  assert.equal((await f.run()).activity_state, 'disabled');
+  assert.equal(
+    (
+      f.store.db
+        .prepare('SELECT count(*) AS n FROM execution_requests WHERE execution_id=?')
+        .get(e.id) as { n: number }
+    ).n,
+    4,
+  );
+});
+test('uncertain session in one activity cannot be cleared by a sibling or deleted', async (t) => {
+  const f = await fixture(t);
+  await f.patch({ ...baseActivity, mode: 'test-sign-in', testAccount: account });
+  const second = await addActivity(f, 'Another test account');
+  await patchActivity(f, second.id, {
+    ...baseActivity,
+    mode: 'test-sign-in',
+    testAccount: account,
+  });
+  assert.notEqual(f.store.activitySecret(ref), f.store.activitySecret(ref, second.id));
+  f.store.db
+    .prepare("UPDATE project_activity SET session_review=1 WHERE project_id=? AND id='default'")
+    .run(ref);
+  const e = await f.run();
+  assert.equal(e.activity_state, 'failed');
+  assert.equal(e.state, 'failed');
+  assert.equal(e.database_ok, 1);
+  assert.equal(f.state.signIns, 1);
+  assert.equal(f.state.signOuts, 1);
+  assert.equal(
+    f.store.project(ref)?.activities.find((a) => a.id === 'default')?.sessionReviewRequired,
+    true,
+  );
+  assert.equal(
+    f.store.project(ref)?.activities.find((a) => a.id === second.id)?.sessionReviewRequired,
+    false,
+  );
+  assert.equal(
+    (
+      await f.app.inject({
+        method: 'DELETE',
+        url: `/api/projects/${ref}/activities/default`,
+        headers: f.headers,
+      })
+    ).statusCode,
+    409,
+  );
+});
+test('activity CRUD validates ownership, names, CSRF and bounded list size', async (t) => {
+  const f = await fixture(t);
+  const a = await addActivity(f, 'Read');
+  assert.equal(
+    (
+      await f.app.inject({
+        method: 'PATCH',
+        url: `/api/projects/${ref2}/activities/${a.id}`,
+        headers: f.headers,
+        payload: baseActivity,
+      })
+    ).statusCode,
+    404,
+  );
+  assert.equal(
+    (
+      await f.app.inject({
+        method: 'POST',
+        url: `/api/projects/${ref}/activities`,
+        headers: f.headers,
+        payload: { name: '' },
+      })
+    ).statusCode,
+    400,
+  );
+  assert.equal(
+    (
+      await f.app.inject({
+        method: 'DELETE',
+        url: `/api/projects/${ref}/activities/${a.id}`,
+        headers: { origin, cookie: f.headers.cookie },
+      })
+    ).statusCode,
+    403,
+  );
+  for (let i = 1; i < 8; i++) await addActivity(f, `Read ${i}`);
+  assert.equal(
+    (
+      await f.app.inject({
+        method: 'POST',
+        url: `/api/projects/${ref}/activities`,
+        headers: f.headers,
+        payload: { name: 'Too many' },
+      })
+    ).statusCode,
+    409,
+  );
+  assert.equal(f.store.project(ref)?.activities.length, 8);
+});
+test('migration 3 preserves the existing profile, encrypted account, enabled and review flags', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'supabeacon-migrate-list-'));
+  const path = join(dir, 'test.db');
+  const s = new Store(path);
+  try {
+    s.db
+      .prepare(
+        'INSERT INTO projects(id,name,organization,region,status,enabled,first_seen,last_seen) VALUES(?,?,?,?,?,?,?,?)',
+      )
+      .run(ref, 'Fixture', 'fixture', 'eu', 'ACTIVE_HEALTHY', 1, 1, 1);
+    const secret = vault(key).seal({ email, password });
+    // Reconstruct the previous schema to exercise the real startup migration.
+    s.db.exec(
+      `DROP TABLE project_activity; CREATE TABLE project_activity(project_id TEXT PRIMARY KEY REFERENCES projects(id),enabled INTEGER,mode TEXT,table_name TEXT,column_name TEXT,reads INTEGER,credentials TEXT,sign_in_error TEXT,session_review INTEGER); DELETE FROM migrations WHERE version=3; ALTER TABLE execution_requests DROP COLUMN activity_id; ALTER TABLE execution_requests DROP COLUMN activity_name;`,
+    );
+    s.db
+      .prepare('INSERT INTO project_activity VALUES(?,?,?,?,?,?,?,?,?)')
+      .run(ref, 1, 'test-sign-in', 'healthcheck', 'id', 2, secret, null, 1);
+    s.db.close();
+    const reopened = new Store(path);
+    try {
+      assert.equal(reopened.project(ref)?.activities.length, 1);
+      const a = reopened.project(ref)!.activities[0];
+      assert.equal(a.id, 'default');
+      assert.equal(a.enabled, true);
+      assert.equal(a.sessionReviewRequired, true);
+      assert.equal(a.reads, 2);
+      assert.equal(reopened.activitySecret(ref, 'default'), secret);
+      assert.ok(!JSON.stringify(reopened.project(ref)).includes(email));
+      assert.equal(reopened.db.pragma('integrity_check', { simple: true }), 'ok');
+    } finally {
+      reopened.db.close();
+    }
+  } finally {
+    if (s.db.open) s.db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -267,23 +267,37 @@ export class Engine {
       }
       if (error) break;
     }
-    if (p.activity.enabled) {
+    const activities = p.activities.filter((a) => a.enabled);
+    if (activities.length) {
       if (error)
         s.db
           .prepare(
             "UPDATE executions SET activity_state='skipped',activity_error='HEARTBEAT_FAILED' WHERE id=?",
           )
           .run(id);
-      else
-        try {
-          await new ActivityRunner(this.api).run(
-            id,
-            p,
-            () => !this.stopping && s.settings().enabled && !!s.project(p.id)?.activity.enabled,
-          );
-        } catch (e) {
-          error = e instanceof ServiceError ? e.code : 'ACTIVITY_FAILED';
+      else {
+        let activityError: string | null = null;
+        for (const activity of activities) {
+          // A failure in one activity does not conceal or suppress independent checks.
+          try {
+            await new ActivityRunner(this.api, activity.id, activity.name).run(
+              id,
+              p,
+              () =>
+                !this.stopping &&
+                s.settings().enabled &&
+                !!s.project(p.id)?.activities.find((a) => a.id === activity.id)?.enabled,
+              activity,
+            );
+          } catch (e) {
+            activityError ??= e instanceof ServiceError ? e.code : 'ACTIVITY_FAILED';
+          }
         }
+        s.db
+          .prepare('UPDATE executions SET activity_state=?,activity_error=? WHERE id=?')
+          .run(activityError ? 'failed' : 'success', activityError, id);
+        error = activityError;
+      }
     }
     const ok = successes === config.requests && !error;
     s.db.transaction(() => {
