@@ -4,6 +4,12 @@
 
 **Your Supabase projects, always in sight.**
 
+[![CI](https://github.com/rafaelreverberi/SupaBeacon/actions/workflows/ci.yml/badge.svg)](https://github.com/rafaelreverberi/SupaBeacon/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/rafaelreverberi/SupaBeacon)](https://github.com/rafaelreverberi/SupaBeacon/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+[Download / Releases](https://github.com/rafaelreverberi/SupaBeacon/releases/latest) · [Docker image](https://github.com/rafaelreverberi/SupaBeacon/pkgs/container/supabeacon) · [Erste Schritte auf Deutsch](docs/erste-schritte.md)
+
 Self-hosted Supabase activity manager with automatic project discovery, scheduled database heartbeats, OAuth integration, and a modern web dashboard.
 
 SupaBeacon runs on your own server in one container. It discovers projects your Supabase integration can access, schedules small read-only database operations, and records exactly what succeeded. No separate Supabase project, Redis, database password, or service-role key is needed.
@@ -31,14 +37,19 @@ Preview captured from the test-only server. Production starts empty and never se
 
 ## Quick start: Linux / Intel NUC
 
-Requires Docker Engine with Compose v2, Bash, OpenSSL and `ss` or `lsof`. AMD64 and ARM64 are supported by the Dockerfile; native modules are built for the selected architecture.
+Requires Docker Engine with Compose v2, Bash, OpenSSL and `ss` or `lsof`. The published Docker image supports **linux/amd64** (Intel/AMD NUC, PC, VPS) and **linux/arm64** (64-bit Raspberry Pi/ARM servers). No host Node.js, npm, database server or compiler is needed for the prebuilt image.
 
 ```bash
-chmod +x setup.sh
-./setup.sh
+git clone https://github.com/rafaelreverberi/SupaBeacon.git
+cd SupaBeacon
+./setup.sh --image
 ```
 
-Choose a port (default `8080`), network binding, heartbeat settings and timezone. The script generates a private `.env`, builds the application and waits for container health. Open the URL printed by the script, read `SETUP_TOKEN` from `.env`, then create your administrator account. The one-time token cannot create another account after initialization.
+No Git? Download **SupaBeacon-v1.0.0.tar.gz** and **SHA256SUMS** from the [release](https://github.com/rafaelreverberi/SupaBeacon/releases/tag/v1.0.0), verify the archive’s SHA-256 against the published checksum, extract it, enter its directory and run `./setup.sh --image`.
+
+The installer pins `ghcr.io/rafaelreverberi/supabeacon:1.0.0` and Docker selects the matching architecture. Prefer a version tag for predictable updates; `latest` is also published. To compile the source locally instead, run `./setup.sh` without `--image`.
+
+Choose a port (default `8080`), network binding, heartbeat settings and timezone. The script generates a private `.env`, pulls the prebuilt image (or builds in source mode) and waits for container health. Open the URL printed by the script, read `SETUP_TOKEN` from `.env`, then create your administrator account. The one-time token cannot create another account after initialization.
 
 Default binding is loopback. When using a remote server, either configure trusted HTTPS or forward a localhost port:
 
@@ -64,7 +75,7 @@ Each self-hosted administrator provides their own client credentials. There is n
 ## Run, stop and inspect
 
 ```bash
-docker compose up -d --build --wait
+./scripts/start.sh             # pull configured image, or build local source
 docker compose logs -f --tail=100
 docker compose stop             # preserve container and data
 docker compose down             # remove container; retain named data volume
@@ -90,6 +101,7 @@ Docker must start on boot for `restart: unless-stopped` to take effect. The imag
 | History/log retention      | 30 days                          | Dashboard (7–365 days)                                                           |
 | `APP_URL`                  | `http://localhost:8080`          | `.env`; recreate container                                                       |
 | `APP_URL_MODE`             | `auto`                           | HTTP follows host port; HTTPS stays fixed; `explicit` preserves the full APP_URL |
+| `SUPABEACON_IMAGE`         | Unset in source mode             | `.env`; versioned GHCR image for prebuilt installations                          |
 | `DASHBOARD_PORT`           | `8080`                           | `.env`; recreate container                                                       |
 | `BIND_ADDRESS`             | `127.0.0.1`                      | `.env`; recreate container                                                       |
 | `TRUST_PROXY`              | None                             | Explicit trusted proxy IP/CIDR in `.env`                                         |
@@ -107,7 +119,7 @@ Initial heartbeat environment values seed SQLite only on first initialization. S
 ./scripts/restore.sh backups/YOUR-BACKUP.tar.gz
 ```
 
-Update builds the currently checked-out source and takes a backup first. It does not fetch, push or publish anything. Backups use SQLite's online backup API and include `.env`; archives contain sensitive encryption material and are mode `0600`. Restore requires typing `RESTORE` and takes a safety backup of an existing running instance. See [installation](docs/installation.md).
+Update takes a backup first, then pulls the configured `SUPABEACON_IMAGE` or builds the currently checked-out source. For an image upgrade, change only its version tag in `.env` before running the update script. It never fetches source revisions, pushes or publishes anything. Backups use SQLite's online backup API and include `.env`; archives contain sensitive encryption material and are mode `0600`. Restore requires typing `RESTORE` and takes a safety backup of an existing running instance. See [installation](docs/installation.md).
 
 ## Development
 

@@ -13,3 +13,4 @@ playwright-report/
 test-results/
 .DS_Store
 coverage/
+release-assets/

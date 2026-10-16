@@ -2,7 +2,7 @@ name: supabeacon
 services:
   supabeacon:
     build: .
-    image: supabeacon:local
+    image: ${SUPABEACON_IMAGE:-supabeacon:local}
     init: true
     restart: unless-stopped
     env_file: .env

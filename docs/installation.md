@@ -1,10 +1,10 @@
 # Installation and operation
 
-Run `./setup.sh` from this directory. Linux is the deployment target; macOS is supported for development. The script checks Docker availability, Compose, host port availability, configuration ranges, timezone and host input. New `.env` files use mode 0600. Re-running setup preserves existing secrets and SQLite settings, rebuilds and starts the current source. It never deletes the data volume.
+Run `./setup.sh --image` from a trusted release archive or cloned repository to use the published AMD64/ARM64 image without a compiler. Use `./setup.sh` for a local source build. Linux is the deployment target; macOS is supported for development. The script checks Docker availability, Compose, host port availability, configuration ranges, timezone and host input. New `.env` files use mode 0600. Re-running setup preserves existing secrets and SQLite settings, starts the mode already configured in `.env`. Existing installations are not converted by re-running `--image`; to switch deliberately, set `SUPABEACON_IMAGE=ghcr.io/rafaelreverberi/supabeacon:1.0.0` in `.env` and use `./scripts/start.sh`. It never deletes the data volume.
 
 The application supports native AMD64 and ARM64 builds. The supplied Dockerfile builds native SQLite/Argon2 dependencies within the target architecture; cross-compilation needs Docker Buildx/QEMU or a native target builder. Container runtime uses Node.js 24 LTS, an unprivileged node user, dropped capabilities, no-new-privileges, read-only root filesystem, a small temporary filesystem and one persistent data volume. No Docker socket or privileged mode is used.
 
-For Compose, change **DASHBOARD_PORT**, not PORT: PORT is the internal Node listener. For a bare Node process outside Docker, set PORT to its actual listening port as well. The selected external port maps to container 8080. Internal healthcheck always uses 127.0.0.1:8080. Wait for health with `docker compose up -d --build --wait`; inspect with `docker compose ps` and `docker compose logs -f --tail=100`.
+For Compose, change **DASHBOARD_PORT**, not PORT: PORT is the internal Node listener. For a bare Node process outside Docker, set PORT to its actual listening port as well. The selected external port maps to container 8080. Internal healthcheck always uses 127.0.0.1:8080. Start with `./scripts/start.sh` (which waits for health); inspect with `docker compose ps` and `docker compose logs -f --tail=100`.
 
 ## Canonical origin and reverse proxy
 
@@ -58,7 +58,7 @@ If an HTTPS reverse proxy remains at `https://beacon.example.com`, change `DASHB
 
 ## Updates
 
-Review/check out the desired trusted revision, then run `./scripts/update.sh`. It backs up and rebuilds the local source. No git pulls or remote publications happen automatically. Check health after an update. Existing data is persistent; migrations execute transactionally. Restore the matching data/key backup and previous source if a later migration requires rollback.
+Review/check out the desired trusted revision, then run `./scripts/update.sh`. It backs up, then pulls the configured `SUPABEACON_IMAGE` or rebuilds the local source. Versioned installations stay on their selected tag until you explicitly edit that variable; changing `1.0.0` to a newer published version does not replace other `.env` values. Never use `docker compose up --build` for a registry installation, because it builds local source under the configured image name. Use `./scripts/start.sh` instead. No git pulls or remote publications happen automatically. Check health after an update. Existing data is persistent; migrations execute transactionally. Restore the matching data/key backup and previous source if a later migration requires rollback.
 
 ## Uninstall
 

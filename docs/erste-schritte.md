@@ -1,3 +1,17 @@
+# Installation mit fertigem Docker-Image
+
+Für Intel/AMD-NUCs und 64-Bit-ARM-Geräte gibt es fertige Images. Docker wählt die passende Architektur automatisch.
+
+```bash
+git clone https://github.com/rafaelreverberi/SupaBeacon.git
+cd SupaBeacon
+./setup.sh --image
+```
+
+Alternativ das Installationsarchiv aus den [GitHub Releases](https://github.com/rafaelreverberi/SupaBeacon/releases/latest) herunterladen, entpacken und darin `./setup.sh --image` ausführen. Der Assistent erstellt eigene Schlüssel und Zugangsdaten für diese Installation; keine Daten des Entwicklers sind enthalten. Docker Engine mit Compose v2, Bash, OpenSSL und `ss` oder `lsof` müssen bereits installiert sein. Der Quellcode-Modus ist weiterhin `./setup.sh` ohne Argument.
+
+Das Image wird auf `ghcr.io/rafaelreverberi/supabeacon:1.0.0` festgelegt. Für spätere Updates zuerst `./scripts/backup.sh` ausführen, die gewünschte veröffentlichte Version bei `SUPABEACON_IMAGE` in `.env` eintragen und `./scripts/update.sh` starten. Vorhandene Schlüssel niemals neu generieren. Details folgen unten.
+
 # SupaBeacon einrichten: Erste Schritte
 
 Diese Anleitung führt von der Installation bis zur ersten überprüften Datenbankabfrage. Jede Installation benötigt **einmal** eine eigene Supabase-OAuth-Anwendung. Einzelne Projekte musst du danach nicht manuell hinzufügen.

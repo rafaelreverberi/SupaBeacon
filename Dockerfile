@@ -8,6 +8,14 @@ FROM dependencies AS build
 COPY . .
 RUN npm run build && npm prune --omit=dev
 FROM node:24-bookworm-slim AS runtime
+ARG VERSION=development
+ARG REVISION=unknown
+LABEL org.opencontainers.image.title="SupaBeacon" \
+      org.opencontainers.image.description="Self-hosted Supabase project monitoring and optional activity checks" \
+      org.opencontainers.image.source="https://github.com/rafaelreverberi/SupaBeacon" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version=$VERSION \
+      org.opencontainers.image.revision=$REVISION
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=8080 DATABASE_PATH=/app/data/supabeacon.db
 WORKDIR /app
 COPY --from=build --chown=node:node /app/package.json ./

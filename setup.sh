@@ -2,6 +2,13 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 umask 077
+install_image=''
+case "${1:-}" in
+  '') ;;
+  --image) install_image=${2:-ghcr.io/rafaelreverberi/supabeacon:1.0.0}; [[ $# -le 2 ]] || exit 1 ;;
+  *) printf 'Usage: ./setup.sh [--image [REGISTRY_IMAGE:TAG]]\n' >&2; exit 1 ;;
+esac
+[[ -z "$install_image" || "$install_image" =~ ^[a-z0-9][a-z0-9./:_@-]+$ ]] || { printf 'Invalid image reference.\n' >&2; exit 1; }
 printf '\nWelcome to SupaBeacon!\n\nEnvironment checks:\n'
 case "$(uname -s)" in Linux|Darwin) ;; *) printf 'Linux (or macOS for development) is required.\n' >&2; exit 1;; esac
 for command in docker openssl awk tar; do command -v "$command" >/dev/null || { printf 'Missing required command: %s\n' "$command" >&2; exit 1; }; done
@@ -10,7 +17,7 @@ docker compose version >/dev/null
 printf '[OK] Docker and Docker Compose detected\n[OK] %s %s detected\n' "$(uname -s)" "$(uname -m)"
 if [[ -f .env ]]; then
   printf '\nExisting configuration found. Settings, secrets and data will be preserved.\n'
-  docker compose up -d --build --wait
+  ./scripts/start.sh
   printf '\nSupaBeacon started using the existing .env.\n'
   exit 0
 fi
@@ -58,8 +65,9 @@ HEARTBEATS_PER_DAY=$frequency
 REQUESTS_PER_HEARTBEAT=$requests
 AUTO_ENABLE=$auto_enable
 ENV
+if [[ -n "$install_image" ]]; then printf 'SUPABEACON_IMAGE=%s\n' "$install_image" >> .env; fi
 chmod 600 .env
 printf '\n[OK] Configuration and secrets generated\n'
 docker compose config --quiet
-docker compose up -d --build --wait
+./scripts/start.sh
 printf '\nSupaBeacon is ready!\nDashboard: %s\n\nNext steps:\n1. Find SETUP_TOKEN in .env and create your administrator in the dashboard.\n2. Register your Supabase OAuth application (see docs/oauth-setup.md).\n3. Save its client ID and secret in Settings, then connect Supabase.\n\nBack up .env with the persistent volume; it contains the encryption key.\n' "$app_url"

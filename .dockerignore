@@ -10,3 +10,4 @@ test-results
 *.db*
 *.sqlite*
 *.log
+release-assets
