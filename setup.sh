@@ -33,6 +33,8 @@ fi
 read -r -p 'Canonical access URL (HTTPS reverse proxy if available) [http://'"$public_host:$port"']: ' app_url
 app_url=${app_url:-http://$public_host:$port}
 [[ "$app_url" =~ ^https?://[a-zA-Z0-9.-]+(:[0-9]+)?$ ]] || { printf 'Use an HTTP(S) origin without a path or trailing slash.\n' >&2; exit 1; }
+app_url_mode=auto
+if [[ "$app_url" == http://* && "$app_url" != http://*":$port" ]]; then app_url_mode=explicit; fi
 read -r -p 'Heartbeats per day [2]: ' frequency; frequency=${frequency:-2}
 [[ "$frequency" =~ ^[1-6]$ ]] || { printf 'Choose 1–6.\n' >&2; exit 1; }
 read -r -p 'Requests per heartbeat [2]: ' requests; requests=${requests:-2}
@@ -48,6 +50,7 @@ cat > .env <<ENV
 ENCRYPTION_KEY=$key
 SETUP_TOKEN=$bootstrap
 APP_URL=$app_url
+APP_URL_MODE=$app_url_mode
 BIND_ADDRESS=$bind
 DASHBOARD_PORT=$port
 TIMEZONE=$zone

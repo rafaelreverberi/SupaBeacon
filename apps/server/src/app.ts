@@ -13,6 +13,7 @@ import { Store } from './storage.js';
 import { random, digest, equal, vault } from './crypto.js';
 import { Supabase, Discovery, ServiceError, type Transport } from './supabase.js';
 import { Engine } from './engine.js';
+import { validOrigin } from './origin.js';
 export interface AppConfig {
   database: string;
   key: string;
@@ -20,19 +21,6 @@ export interface AppConfig {
   setupToken: string;
   trustProxy?: string;
   initial?: Record<string, unknown>;
-}
-export function validOrigin(value: string) {
-  const u = new URL(value);
-  if (
-    !['http:', 'https:'].includes(u.protocol) ||
-    u.username ||
-    u.password ||
-    u.pathname !== '/' ||
-    u.search ||
-    u.hash
-  )
-    throw new Error('APP_URL must be an HTTP(S) origin');
-  return u.origin;
 }
 export function callbackAllowed(origin: string) {
   const u = new URL(origin);

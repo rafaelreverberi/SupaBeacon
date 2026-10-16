@@ -346,7 +346,7 @@ test('Data API reveals only publishable key by ID and never retrieves table data
       return response({ type: 'publishable', api_key: 'sb_publishable_fixture' });
     if (String(u).includes('.supabase.co/rest/v1/')) {
       assert.equal(i?.method, 'HEAD');
-      assert.ok(String(u).endsWith('?select=*&limit=0'));
+      assert.ok(String(u).endsWith('?select=*&limit=1'));
       return response(null, 200, { 'content-range': '*/0' });
     }
     return transport(u, i);

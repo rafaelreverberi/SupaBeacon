@@ -1600,3 +1600,26 @@ input[type='checkbox'] {
 dialog.modal {
   color: var(--text);
 }
+
+.oauth-logo {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  padding: 18px 0;
+  margin: 12px 0 20px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.oauth-logo img {
+  border-radius: 10px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+.oauth-logo strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+.oauth-logo p {
+  font-size: 11px;
+  margin: 7px 0;
+}

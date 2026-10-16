@@ -198,7 +198,7 @@ export class Engine {
             attempts++;
             s.db.prepare('UPDATE executions SET requests=? WHERE id=?').run(attempts, id);
             r = await this.api.request(
-              `https://${p.id}.supabase.co/rest/v1/${encodeURIComponent(p.safe_table)}?select=*&limit=0`,
+              `https://${p.id}.supabase.co/rest/v1/${encodeURIComponent(p.safe_table)}?select=*&limit=1`,
               { method: 'HEAD', headers: { apikey: key } },
             );
             status = r.status;

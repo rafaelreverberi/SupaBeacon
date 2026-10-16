@@ -18,6 +18,18 @@ test('protected onboarding, settings, project actions, history, logs, mobile and
     page.getByRole('link', { name: 'Test project', exact: false }).first(),
   ).toBeVisible();
   await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  await page.getByRole('tab', { name: 'Supabase integration', exact: true }).click();
+  await expect(page.getByLabel('Callback URL', { exact: true })).toHaveValue(
+    'http://localhost:8189/api/oauth/callback',
+  );
+  const logo = page.getByRole('link', { name: 'Download SupaBeacon logo' });
+  await expect(logo).toHaveAttribute('href', '/branding/SupaBeacon_Logo.png');
+  const logoResponse = await page.request.get('/branding/SupaBeacon_Logo.png');
+  expect(logoResponse.status()).toBe(200);
+  expect(logoResponse.headers()['content-type']).toContain('image/png');
+  await expect(page.getByRole('img', { name: 'SupaBeacon OAuth application logo' })).toBeVisible();
+  await page.mouse.move(0, 0);
+  await page.screenshot({ path: 'test-results/oauth-setup-desktop.png', fullPage: true });
   await page.getByRole('tab', { name: 'Monitoring', exact: true }).click();
   await page.getByLabel('Heartbeats per day').fill('3');
   await page.getByRole('button', { name: 'Save settings', exact: true }).click();

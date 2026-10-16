@@ -2,13 +2,109 @@
 
 This is Supabase **Management API OAuth**, not an application project's Supabase Auth server or social sign-in. No Supabase project is required for SupaBeacon itself.
 
-## Registration
+## Before you begin
 
-Create an OAuth app in your Supabase organization's settings → OAuth Apps. Supply your own name, website and exact callback. Copy the generated client ID and secret into **Settings → Supabase integration**. The secret input is write-only. Configuration and tokens are AES-256-GCM encrypted in local SQLite. Changing client credentials requires disconnecting the existing authorization first.
+Every self-hosted installation registers its **own OAuth application**. You only do this once per installation, not once per Supabase project. Each installation keeps its own client credentials; no shared SupaBeacon client secret is distributed. After connecting, projects are discovered automatically.
 
-Register `http://localhost:8080/api/oauth/callback` for localhost development or an SSH tunnel. Register `https://beacon.example.com/api/oauth/callback` for a trusted HTTPS deployment. Use separate clients for separate installations when practical. Client registration/publishing or organization authorization may be subject to Supabase's current requirements.
+You need:
 
-Official Management OAuth documentation demonstrates localhost HTTP callbacks but does not establish plain HTTP LAN callbacks as a supported deployment pattern. SupaBeacon conservatively rejects non-loopback HTTP callbacks. It never invents a remote callback service. Do not confuse these requirements with the separate Supabase Auth OAuth-server documentation.
+- A running SupaBeacon instance and its local administrator account.
+- A Supabase account with permission to register an OAuth application in your organization. If the OAuth Apps page or creation action is unavailable, ask your organization administrator.
+- A browser that can reach the same SupaBeacon origin used for the callback.
+
+Choose your access URL first. For a local installation, use `http://localhost:8080`. For a NUC accessed from another computer, use an SSH tunnel or a trusted HTTPS reverse proxy as described below. Do not enter a raw HTTP LAN address as the OAuth callback: Supabase's registration form requires HTTPS except for localhost, and SupaBeacon rejects non-loopback HTTP callbacks.
+
+## Step 1: Copy your callback from SupaBeacon
+
+1. Open SupaBeacon and sign in as the local administrator.
+2. Open **Settings → Supabase integration**.
+3. Find **Callback URL** and copy the complete value. This is the source of truth for your installation, including any custom port.
+
+Examples:
+
+| How you access SupaBeacon     | Exact callback example                          |
+| ----------------------------- | ----------------------------------------------- |
+| Local machine, default port   | `http://localhost:8080/api/oauth/callback`      |
+| Local machine, custom port 84 | `http://localhost:84/api/oauth/callback`        |
+| HTTPS reverse proxy           | `https://beacon.example.com/api/oauth/callback` |
+
+`beacon.example.com` is an example: replace it with a domain you control. The callback must end in `/api/oauth/callback`; the dashboard homepage alone is not a callback URL. Keep `localhost` and `127.0.0.1` consistent rather than switching between them.
+
+## Step 2: Register an application in Supabase
+
+1. Open the [Supabase Dashboard](https://supabase.com/dashboard).
+2. Select the organization in which you want to register your integration.
+3. Open the **organization's Settings → OAuth Apps**. This is not the Authentication section inside an individual project.
+4. Select **Add application**. The form may be titled **Publish a new OAuth application**.
+5. Complete the fields below.
+
+| Field in Supabase               | What to enter                                                                                                                                                                                                                                                                               |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Application name**            | `SupaBeacon`, or a descriptive name such as `SupaBeacon — Home server`                                                                                                                                                                                                                      |
+| **Website URL**                 | Your installation's homepage, for example `http://localhost:8080` for a local test or your actual HTTPS homepage for a deployed instance. If the website field requires a public HTTPS URL, use an actual project/documentation page you control. This field does not replace the callback. |
+| **Authorization callback URLs** | Paste the exact **Callback URL** copied in Step 1. Use **Add URL** if the form requires adding the entry.                                                                                                                                                                                   |
+| **Upload logo**                 | Optional: download [SupaBeacon_Logo.png](../apps/web/public/branding/SupaBeacon_Logo.png) from this repository or the logo link in SupaBeacon Settings, then select that file. It does not affect authentication.                                                                           |
+
+Set application permissions as follows:
+
+| Permission                                       | Access to select                           | Purpose                                                      |
+| ------------------------------------------------ | ------------------------------------------ | ------------------------------------------------------------ |
+| **Database**                                     | **Read** / **Read-only** (`database:read`) | Execute the supported Beta read-only heartbeat query         |
+| **Projects**                                     | **Read** / **Read-only** (`projects:read`) | Discover authorized projects and check their reported status |
+| **All other permissions**, including **Secrets** | **No access**                              | Not needed for the default strategy                          |
+
+Do not select Write or Read & Write. Organizations, Auth, REST, Storage and the analytics permissions are not required by the default strategy. Keep Secrets disabled unless you deliberately opt into the optional Data API strategy later.
+
+Select **Confirm** to create the application. Supabase manages registration/publishing and may impose additional requirements; follow any instructions it shows. Registering this OAuth application does not publish your SupaBeacon source code or deploy a server.
+
+## Step 3: Save the client credentials in SupaBeacon
+
+1. Copy the **Client ID** and **Client Secret** from the newly registered application's details. If the secret is displayed only once, save it securely before leaving that page.
+2. Return to **SupaBeacon → Settings → Supabase integration**.
+3. Paste them into **OAuth client ID** and **OAuth client secret**.
+4. Leave **Enable optional Data API strategy** off for the normal setup.
+5. Select **Save OAuth configuration**.
+
+These are the **OAuth application's** credentials. Do not enter a project reference, a database password, a personal access token, an anon key or a service-role key in these fields. Never put the client secret in a GitHub issue, screenshot, repository, Docker image or browser URL.
+
+The secret input is write-only: the saved value is not sent back to the browser. Configuration and tokens are encrypted in local SQLite using the instance's encryption key. Preserve `.env` together with the database in private backups. Changing client credentials later requires disconnecting the current authorization first.
+
+## Step 4: Connect your Supabase account
+
+1. Select **Connect Supabase** in SupaBeacon.
+2. Supabase opens its authorization page. Sign in if needed, check the application name and requested permissions, and select the organization offered by the consent flow.
+3. Approve access. Supabase redirects back to your installation automatically; keep using the browser/session that started the flow.
+4. SupaBeacon immediately synchronizes projects visible to the authorization.
+
+You do **not** need to add a project URL or key for every project. Discovery runs again every two hours by default; **Sync projects** runs it immediately. It only includes projects the granted authorization can access, not every project your account might see elsewhere.
+
+## Step 5: Check the connection
+
+- The Supabase connection indicator should say **Connected**.
+- Settings should show a successful project synchronization, or an actionable sync error.
+- **Projects** should contain the projects visible to your authorization. An empty list can mean that no projects are accessible through the selected organization/permissions.
+- On an active project, open its detail view and select **Run heartbeat / test connection**. Wait for the final execution result. **Running** is not success.
+- A successful default heartbeat confirms the expected database response. It does not confirm prevention of automatic inactivity pausing. See [the evidence and alternatives](project-pausing.md).
+
+If connection fails, use the checklist below before creating another OAuth application.
+
+## Common setup mistakes
+
+| Symptom                                        | Check                                                                                                                                   |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Redirect/callback URL rejected                 | Match the copied callback exactly: scheme, hostname, port and `/api/oauth/callback`. HTTPS is required except for localhost.            |
+| Callback opens the wrong computer              | `localhost` means the browser's computer. For a NUC, use the SSH tunnel or HTTPS instructions below.                                    |
+| Origin or CSRF rejected                        | Open the canonical `APP_URL`, not another IP/hostname. Recreate the container after changing `.env`, then refresh/sign in again.        |
+| Invalid OAuth state / login required on return | Start again with **Connect Supabase**, in the same browser/session. State expires after ten minutes and is single-use.                  |
+| OAuth exchange failed                          | Check that Client ID and Client Secret belong to the same registered OAuth application and that its callback matches.                   |
+| Connected, but discovery or heartbeat gets 403 | Check Projects Read and Database Read in the registered application. After changing permissions, reconnect to grant the updated access. |
+| Project is paused or unhealthy                 | SupaBeacon deliberately skips it; inspect the provider state in Supabase. It never resumes projects automatically.                      |
+
+See [troubleshooting](troubleshooting.md) for token expiry, safe-table configuration and provider rate limits.
+
+## Changing the dashboard port later
+
+You can change the host port without losing projects, settings or history. Follow [Changing the dashboard port](installation.md#changing-the-dashboard-port-later). In default auto mode, changing DASHBOARD_PORT automatically adjusts the HTTP callback shown in Settings after container recreation; HTTPS addresses stay fixed. APP_URL_MODE=explicit preserves the full configured origin for tunnels and proxies. If the browser-facing origin changes, update the registered OAuth callback to the new value and start a fresh connection flow. If a reverse proxy keeps the same public HTTPS origin, changing only its backend port does not change the OAuth callback.
 
 ## Server accessed from another computer
 
@@ -25,7 +121,7 @@ Required: `projects:read` for discovery and status; `database:read` for the Beta
 
 Optional: explicitly enable the Data API strategy in the dashboard and add `secrets:read` in Supabase. This is a broad permission that can access secrets, even though SupaBeacon restricts its own implementation. Explain this to anyone administering the instance. The code lists API key **metadata** with `reveal=false`, chooses `type=publishable`, and reveals only that key by its ID. It never calls legacy key retrieval, never reveals a secret/service-role key, and never caches project API keys. If no existing publishable key is available, the run fails visibly. It does not create a key.
 
-For each Data API project, explicitly choose an existing safe table in the exposed default schema. SupaBeacon performs a bounded HEAD request with `limit=0`; it requests no row bodies and never alters RLS. Check grants, RLS and exposure yourself. RPCs are intentionally excluded because a seemingly read-only RPC could mutate application data.
+For each Data API project, explicitly choose an existing safe table in the exposed default schema. SupaBeacon performs a bounded HEAD request with `limit=1`; it requests no row bodies and never alters RLS. Check grants, RLS and exposure yourself. RPCs are intentionally excluded because a seemingly read-only RPC could mutate application data.
 
 ## Flow
 

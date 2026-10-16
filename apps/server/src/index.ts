@@ -1,9 +1,12 @@
 import { z } from 'zod';
 import { createApp } from './app.js';
+import { resolvePublicOrigin } from './origin.js';
 const env = z
   .object({
     ENCRYPTION_KEY: z.string().length(64),
     APP_URL: z.url().default('http://localhost:8080'),
+    APP_URL_MODE: z.enum(['auto', 'explicit']).default('auto'),
+    DASHBOARD_PORT: z.coerce.number().int().min(1).max(65535).optional(),
     DATABASE_PATH: z.string().default('data/supabeacon.db'),
     SETUP_TOKEN: z.string().min(32),
     PORT: z.coerce.number().int().min(1).max(65535).default(8080),
@@ -18,7 +21,11 @@ const env = z
 const { app, engine } = await createApp({
   database: env.DATABASE_PATH,
   key: env.ENCRYPTION_KEY,
-  origin: env.APP_URL,
+  origin: resolvePublicOrigin({
+    appUrl: env.APP_URL,
+    dashboardPort: env.DASHBOARD_PORT,
+    mode: env.APP_URL_MODE,
+  }),
   setupToken: env.SETUP_TOKEN,
   trustProxy: env.TRUST_PROXY,
   initial: {

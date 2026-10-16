@@ -143,7 +143,7 @@ export function SettingsPage({
                   {number('retentionDays', 'History and log retention (days)', 7, 365)}
                   <Field
                     label="Dashboard port"
-                    hint="Edit DASHBOARD_PORT and APP_URL in .env; container recreation required."
+                    hint="Change DASHBOARD_PORT in .env and recreate the container. HTTP callback ports follow automatically; HTTPS stays fixed."
                   >
                     <input value={settings.port} readOnly />
                   </Field>
@@ -239,18 +239,54 @@ export function SettingsPage({
             </Badge>
           </div>
           <p>
-            Register your own OAuth application. Credentials are encrypted on this server and never
-            returned to the browser.
+            Each installation registers its own OAuth application once. Your projects are discovered
+            automatically after connecting. Credentials stay encrypted on this server.
           </p>
           <ol className="setup-steps">
-            <li>Open your Supabase organization’s settings → OAuth Apps → Add application.</li>
+            <li>
+              Open your Supabase organization’s settings → OAuth Apps → Add application. Name it
+              SupaBeacon and use your installation’s homepage as the website URL.
+            </li>
             <li>
               Register the exact callback below. Enable <code>projects:read</code> and{' '}
               <code>database:read</code> in the application’s permissions.
             </li>
-            <li>Enter the client ID and client secret, save, then connect your account.</li>
+            <li>
+              Set Database and Projects to Read. Leave every other permission at No access for the
+              default strategy. The logo below is optional.
+            </li>
+            <li>
+              Confirm in Supabase, then copy the new OAuth application’s client ID and secret into
+              the fields below. Save the configuration and select Connect Supabase.
+            </li>
+            <li>
+              Approve the organization access in Supabase. After returning, sync projects and test
+              an active project. Database success does not prove prevention of pausing.
+            </li>
           </ol>
-          <Field label="Callback URL">
+          <div className="oauth-logo">
+            <img
+              src="/branding/SupaBeacon_Logo.png"
+              alt="SupaBeacon OAuth application logo"
+              width="88"
+              height="88"
+            />
+            <div>
+              <strong>Optional application logo</strong>
+              <p>In Supabase’s registration form, choose Upload logo and select this PNG.</p>
+              <a
+                href="/branding/SupaBeacon_Logo.png"
+                download="SupaBeacon_Logo.png"
+                className="text-link"
+              >
+                Download SupaBeacon logo
+              </a>
+            </div>
+          </div>
+          <Field
+            label="Callback URL"
+            hint="Copied from this instance’s effective access URL. After changing .env, recreate the container, refresh this page and update the registered callback in Supabase too."
+          >
             <input value={connection.callback} readOnly onFocus={(e) => e.currentTarget.select()} />
           </Field>
           {!connection.callbackAllowed && (
