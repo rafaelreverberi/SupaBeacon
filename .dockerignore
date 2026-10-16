@@ -1,0 +1,12 @@
+node_modules
+.git
+.env
+.env.*
+data
+backups
+dist
+playwright-report
+test-results
+*.db*
+*.sqlite*
+*.log

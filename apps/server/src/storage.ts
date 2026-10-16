@@ -1,0 +1,98 @@
+import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { eq } from 'drizzle-orm';
+import { mkdirSync, chmodSync } from 'node:fs';
+import { dirname } from 'node:path';
+import {
+  defaults,
+  settingsSchema,
+  type Settings,
+  type Project,
+} from '../../../packages/shared/config.js';
+const kv = sqliteTable('settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+});
+export class Store {
+  db: Database.Database;
+  orm: ReturnType<typeof drizzle>;
+  constructor(path: string, initial: Partial<Settings> = {}) {
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    this.db = new Database(path);
+    chmodSync(path, 0o600);
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('foreign_keys = ON');
+    this.db.pragma('busy_timeout = 5000');
+    this.db.pragma('synchronous = FULL');
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS migrations(version INTEGER PRIMARY KEY, applied INTEGER NOT NULL);`,
+    );
+    this.db.transaction(() => {
+      if (this.db.prepare('SELECT 1 FROM migrations WHERE version=1').get()) return;
+      this.db.exec(`
+      CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+      CREATE TABLE admin(id INTEGER PRIMARY KEY CHECK(id=1), username TEXT NOT NULL, password TEXT NOT NULL);
+      CREATE TABLE sessions(id TEXT PRIMARY KEY, csrf TEXT NOT NULL, created INTEGER NOT NULL, expires INTEGER NOT NULL);
+      CREATE TABLE oauth_flow(state TEXT PRIMARY KEY, session TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, verifier TEXT NOT NULL, expires INTEGER NOT NULL);
+      CREATE TABLE projects(id TEXT PRIMARY KEY,name TEXT NOT NULL,organization TEXT NOT NULL,region TEXT NOT NULL,status TEXT NOT NULL,present INTEGER NOT NULL DEFAULT 1, enabled INTEGER NOT NULL,strategy TEXT NOT NULL DEFAULT 'management',safe_table TEXT,overrides TEXT, first_seen INTEGER NOT NULL,last_seen INTEGER NOT NULL,last_run INTEGER,last_success INTEGER,next_run INTEGER,last_error TEXT);
+      CREATE TABLE jobs(id INTEGER PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),due INTEGER NOT NULL,state TEXT NOT NULL DEFAULT 'pending',UNIQUE(project_id,due));
+      CREATE INDEX jobs_due ON jobs(state,due);
+      CREATE TABLE executions(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),source TEXT NOT NULL,strategy TEXT NOT NULL,state TEXT NOT NULL,started INTEGER NOT NULL,finished INTEGER,requests INTEGER NOT NULL DEFAULT 0,successes INTEGER NOT NULL DEFAULT 0,database_ok INTEGER NOT NULL DEFAULT 0,error TEXT,duration INTEGER);
+      CREATE UNIQUE INDEX execution_overlap ON executions(project_id) WHERE state='running';
+      CREATE INDEX execution_time ON executions(started);
+      CREATE TABLE execution_requests(id INTEGER PRIMARY KEY,execution_id TEXT NOT NULL REFERENCES executions(id) ON DELETE CASCADE,at INTEGER NOT NULL,status INTEGER,duration INTEGER NOT NULL,ok INTEGER NOT NULL,error TEXT);
+      CREATE TABLE logs(id INTEGER PRIMARY KEY,at INTEGER NOT NULL,level TEXT NOT NULL,event TEXT NOT NULL,project_id TEXT,details TEXT NOT NULL);
+      CREATE INDEX logs_at ON logs(at);
+      `);
+      this.db.prepare('INSERT INTO migrations VALUES(1,?)').run(Date.now());
+    })();
+    this.orm = drizzle(this.db);
+    if (!this.get('monitoring'))
+      this.set('monitoring', settingsSchema.parse({ ...defaults, ...initial }));
+  }
+  get<T = string>(key: string): T | null {
+    const row = this.orm.select().from(kv).where(eq(kv.key, key)).get();
+    return row ? (JSON.parse(row.value) as T) : null;
+  }
+  set(key: string, value: unknown) {
+    this.orm
+      .insert(kv)
+      .values({ key, value: JSON.stringify(value) })
+      .onConflictDoUpdate({ target: kv.key, set: { value: JSON.stringify(value) } })
+      .run();
+  }
+  settings() {
+    return settingsSchema.parse(this.get('monitoring'));
+  }
+  projects(): Project[] {
+    return this.db
+      .prepare(
+        `SELECT p.*, (SELECT count(*) FROM executions e WHERE e.project_id=p.id AND e.state='failed' AND e.started>?) AS failures FROM projects p ORDER BY p.name`,
+      )
+      .all(Date.now() - 7 * 86400_000) as Project[];
+  }
+  project(id: string) {
+    return this.projects().find((p) => p.id === id);
+  }
+  log(
+    level: string,
+    event: string,
+    project: string | null = null,
+    details: Record<string, unknown> = {},
+  ) {
+    this.db
+      .prepare('INSERT INTO logs(at,level,event,project_id,details) VALUES(?,?,?,?,?)')
+      .run(Date.now(), level, event, project, JSON.stringify(details));
+  }
+  prune() {
+    const until = Date.now() - this.settings().retentionDays * 86400_000;
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM logs WHERE at<?').run(until);
+      this.db.prepare("DELETE FROM executions WHERE started<? AND state!='running'").run(until);
+      this.db.prepare("DELETE FROM jobs WHERE state!='pending' AND due<?").run(until);
+      this.db.prepare('DELETE FROM sessions WHERE expires<?').run(Date.now());
+      this.db.prepare('DELETE FROM oauth_flow WHERE expires<?').run(Date.now());
+    })();
+  }
+}
