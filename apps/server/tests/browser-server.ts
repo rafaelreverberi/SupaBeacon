@@ -25,6 +25,21 @@ const { app, store, engine } = await createApp(
     };
     if (u.endsWith('/projects')) return Response.json([project]);
     if (u.endsWith(`/projects/${ref}`)) return Response.json(project);
+    if (u.endsWith('/api-keys?reveal=false'))
+      return Response.json([{ id: 'fixture-public', type: 'publishable' }]);
+    if (u.endsWith('/api-keys/fixture-public?reveal=true'))
+      return Response.json({ type: 'publishable', api_key: 'sb_publishable_fixture' });
+    if (u.includes('/rest/v1/healthcheck?select=id&limit=1'))
+      return Response.json([{ id: 'fixture-discarded-row' }], {
+        headers: { 'content-range': '0-0/*' },
+      });
+    if (u.endsWith('/auth/v1/token?grant_type=password'))
+      return Response.json({
+        access_token: 'browser-fixture-auth-access',
+        refresh_token: 'browser-fixture-auth-refresh',
+        user: { factors: [] },
+      });
+    if (u.endsWith('/auth/v1/logout?scope=local')) return new Response(null, { status: 204 });
     if (u.endsWith('/read-only')) return Response.json([{ heartbeat: 1 }], { status: 201 });
     throw new Error('Unexpected test request');
   },
@@ -34,7 +49,7 @@ store.set(
   vault(key).seal({
     clientId: '11111111-1111-4111-8111-111111111111',
     clientSecret: 'browser-fixture-only',
-    dataEnabled: false,
+    dataEnabled: true,
   }),
 );
 store.set(

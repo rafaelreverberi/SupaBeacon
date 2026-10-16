@@ -1623,3 +1623,17 @@ dialog.modal {
   font-size: 11px;
   margin: 7px 0;
 }
+
+.optional-activity h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.optional-activity .checkbox {
+  align-items: flex-start;
+  line-height: 1.7;
+  max-width: 850px;
+}
+.session-review {
+  padding: 18px 0;
+}

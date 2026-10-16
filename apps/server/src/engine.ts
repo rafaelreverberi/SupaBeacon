@@ -8,6 +8,7 @@ import {
 } from '../../../packages/shared/config.js';
 import { nextSlot, retryDelay } from './schedule.js';
 import { Supabase, Discovery, ServiceError } from './supabase.js';
+import { ActivityRunner } from './activity.js';
 export class Engine {
   private active = new Map<string, Promise<void>>();
   private timer?: NodeJS.Timeout;
@@ -65,6 +66,11 @@ export class Engine {
       .run(Date.now());
     // Claimed jobs are never replayed; remote effects cannot be made exactly-once after a crash.
     s.db.prepare("UPDATE jobs SET state='interrupted' WHERE state='running'").run();
+    s.db
+      .prepare(
+        "UPDATE executions SET activity_state='interrupted',activity_error='PROCESS_INTERRUPTED' WHERE activity_state='running'",
+      )
+      .run();
     s.prune();
     s.log('info', 'scheduler_started');
     this.timer = setInterval(() => this.tick(), 2000);
@@ -120,6 +126,9 @@ export class Engine {
       });
       if (!id) s.db.prepare("UPDATE jobs SET state='skipped' WHERE id=?").run(job.id);
     }
+  }
+  isRunning(id: string) {
+    return this.active.has(id);
   }
   run(id: string) {
     const s = this.api.store,
@@ -257,6 +266,24 @@ export class Engine {
         }
       }
       if (error) break;
+    }
+    if (p.activity.enabled) {
+      if (error)
+        s.db
+          .prepare(
+            "UPDATE executions SET activity_state='skipped',activity_error='HEARTBEAT_FAILED' WHERE id=?",
+          )
+          .run(id);
+      else
+        try {
+          await new ActivityRunner(this.api).run(
+            id,
+            p,
+            () => !this.stopping && s.settings().enabled && !!s.project(p.id)?.activity.enabled,
+          );
+        } catch (e) {
+          error = e instanceof ServiceError ? e.code : 'ACTIVITY_FAILED';
+        }
     }
     const ok = successes === config.requests && !error;
     s.db.transaction(() => {

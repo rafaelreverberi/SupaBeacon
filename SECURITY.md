@@ -8,7 +8,7 @@ Assets: OAuth client secret, access/refresh tokens, administrator password hash,
 
 ## Implemented controls
 
-- First-run account creation requires a separately generated 256-bit bootstrap secret. A singleton database constraint prevents creating a second administrator. Argon2id uses 64 MiB, three iterations and one lane; passwords are never logged or retained.
+- First-run account creation requires a separately generated 256-bit bootstrap secret. A singleton database constraint prevents creating a second administrator. Argon2id uses 64 MiB, three iterations and one lane; administrator passwords are never logged or retained in plaintext. Optional dedicated test-account passwords are separately encrypted and write-only, as described below.
 - Random 256-bit session cookies are HttpOnly, SameSite=Lax, expire after seven days and are stored only as SHA-256 hashes. HTTPS origins enable Secure cookies. Session listing, revocation, logout and password rotation are supported; changing password revokes other sessions.
 - Login/bootstrap have per-client-IP limits. Configure explicit trusted proxy addresses if required; broad proxy trust permits forged client IPs. Low request body limits, Zod validation, security headers and same-origin mutation checks reduce attack surface.
 - Authenticated writes require a session CSRF token as well as exact Origin. No cross-origin CORS is enabled. XSS remains a threat to authenticated administrator actions; React escapes content, and CSP disallows external scripts, frames and object content.
@@ -32,3 +32,13 @@ Application or dependency vulnerabilities, endpoint changes, resource exhaustion
 ## Reporting
 
 Do not publish tokens, passwords, `.env`, database files or backups in an issue. Until this repository has a designated private security contact, report vulnerabilities privately to the instance/repository maintainer through an established private channel. Open only sanitized general issues. This repository has no automatic publication workflow or telemetry.
+
+## Optional test-account activity
+
+The project activity profile is explicitly enabled per project, off for all existing/new projects, and gated by the existing optional Data API permission. Only fixed Supabase project hosts, safe table/column identifiers and bounded reads are permitted. No arbitrary URLs, RPCs, signup, user deletion or traffic camouflage are introduced.
+
+A dedicated existing account may be provided for real password sign-in/read/local-sign-out checks. Its email/password are AES-GCM encrypted and never included in API output, logs or diagnostics. Account session tokens, refresh tokens and selected table values are discarded after use; response validation has a 64 KiB ceiling. Login can have provider/application-specific hooks, real audit events and quota/billing consequences. Use a minimally privileged dedicated account, never a personal/admin/customer account. MFA/CAPTCHA/SSO are not bypassed or automated.
+
+Logout explicitly uses local scope, never global/others. Issued access JWTs remain valid until expiry even after logout. A durable uncertainty flag is written before sign-in; failed/unconfirmed cleanup or process loss blocks further test sign-ins until operator review/revocation and explicit acknowledgement. Local acknowledgement is not remote revocation. This avoids silent session accumulation without storing session tokens for recovery. There is no guarantee of logout after a hard crash or lost network response. Backups contain encrypted test credentials together with the encryption key and remain sensitive.
+
+Rejected credentials and detected MFA requirements block future test sign-ins until new test-account credentials are explicitly saved. This block is distinct from uncertain session cleanup. Session-review acknowledgement cannot be saved while that project is executing.

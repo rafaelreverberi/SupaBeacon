@@ -355,6 +355,23 @@ export async function createApp(config: AppConfig, transport?: Transport) {
       !(input.safeTable === undefined ? p.safe_table : input.safeTable)
     )
       throw new ServiceError('SAFE_TABLE_REQUIRED');
+    const a = input.activity;
+    if (a?.acknowledgeSessionReview && engine.isRunning(id))
+      throw new ServiceError('PROJECT_ALREADY_RUNNING', 409);
+    if (a?.enabled) {
+      if (engine.isRunning(id)) throw new ServiceError('PROJECT_ALREADY_RUNNING', 409);
+      if (!api.config()?.dataEnabled) throw new ServiceError('DATA_STRATEGY_NOT_AUTHORIZED');
+      if (!a.table || !a.column) throw new ServiceError('ACTIVITY_TABLE_AND_COLUMN_REQUIRED');
+      if (a.mode === 'test-sign-in') {
+        if (p.activity.signInError && !a.testAccount)
+          throw new ServiceError('TEST_ACCOUNT_UPDATE_REQUIRED', 409);
+        const hasCredentials =
+          a.testAccount === null ? false : !!a.testAccount || !!s.activitySecret(id);
+        if (!hasCredentials) throw new ServiceError('TEST_ACCOUNT_REQUIRED');
+        if (p.activity.sessionReviewRequired && !a.acknowledgeSessionReview)
+          throw new ServiceError('TEST_SESSION_REVIEW_REQUIRED', 409);
+      }
+    }
     s.db.transaction(() => {
       s.db
         .prepare('UPDATE projects SET enabled=?,overrides=?,strategy=?,safe_table=? WHERE id=?')
@@ -369,6 +386,30 @@ export async function createApp(config: AppConfig, transport?: Transport) {
           input.safeTable === undefined ? p.safe_table : input.safeTable,
           id,
         );
+      if (a) {
+        const credentials =
+          a.testAccount === undefined
+            ? s.activitySecret(id)
+            : a.testAccount === null
+              ? null
+              : box.seal({ email: a.testAccount.email, password: a.testAccount.password });
+        s.db
+          .prepare(
+            `INSERT INTO project_activity(project_id,enabled,mode,table_name,column_name,reads,credentials) VALUES(?,?,?,?,?,?,?) ON CONFLICT(project_id) DO UPDATE SET enabled=excluded.enabled,mode=excluded.mode,table_name=excluded.table_name,column_name=excluded.column_name,reads=excluded.reads,credentials=excluded.credentials`,
+          )
+          .run(id, Number(a.enabled), a.mode, a.table, a.column, a.reads, credentials);
+        if (a.testAccount !== undefined)
+          s.db.prepare('UPDATE project_activity SET sign_in_error=NULL WHERE project_id=?').run(id);
+        if (a.acknowledgeSessionReview) {
+          s.db.prepare('UPDATE project_activity SET session_review=0 WHERE project_id=?').run(id);
+          s.log('warning', 'test_session_review_acknowledged', id);
+        }
+        s.log('info', 'optional_activity_configured', id, {
+          enabled: a.enabled,
+          mode: a.mode,
+          reads: a.reads,
+        });
+      }
       s.db
         .prepare("UPDATE jobs SET state='cancelled' WHERE project_id=? AND state='pending'")
         .run(id);
@@ -503,7 +544,15 @@ export async function createApp(config: AppConfig, transport?: Transport) {
       paused: projects.filter((p) => p.present && p.status === 'INACTIVE').length,
       successToday: recent.filter((e) => e.state === 'success').length,
       failedToday: recent.filter((e) => ['failed', 'interrupted'].includes(e.state)).length,
-      requestsToday: recent.reduce((a, e) => a + e.requests, 0),
+      requestsToday:
+        recent.reduce((a, e) => a + e.requests, 0) +
+        (
+          s.db
+            .prepare(
+              "SELECT count(*) AS n FROM execution_requests WHERE kind='activity_read' AND at>=?",
+            )
+            .get(today) as { n: number }
+        ).n,
       nextRun: Math.min(...projects.flatMap((p) => (p.next_run ? [p.next_run] : []))) || null,
       lastSuccess: Math.max(0, ...projects.map((p) => p.last_success ?? 0)) || null,
       chart,

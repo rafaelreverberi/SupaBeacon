@@ -40,3 +40,9 @@ The request budget describes configured database requests. Provider-status check
 ## Polling and retention
 
 Dashboard/project data poll every 3–5 seconds; OAuth status every 15 seconds. Log auto-refresh is optional at five seconds. Paging limits reads to thirty rows; log export is capped at 10,000 matching rows. Hourly pruning removes expired sessions/states and old completed executions, request details, jobs and events. Startup also prunes. SQLite reuses freed pages; backup/restore can compact historical space. Schema migrations support later application versions.
+
+## Optional per-project checks
+
+Migration 2 adds a project_activity record per configured project, encrypted write-only dedicated-account credentials, a durable session-review flag and separate optional request counters/kinds. Defaults are off, including for projects discovered after the feature is enabled elsewhere. `activity.ts` runs bounded GET reads of one selected column and optionally wraps them in one password sign-in/local-scope sign-out. It runs only after a successful complete primary heartbeat. Returned values/tokens never enter SQLite, APIs or logs; selected JSON bodies are capped at 64 KiB and validated.
+
+Before sign-in the durable session-review flag is set. Definitive login rejection or confirmed local logout clears it. Network ambiguity, failed logout or a crash preserves it, blocking further sign-ins until explicit operator review. Logout bypasses an existing local provider cooldown solely to attempt session cleanup; its own 429 still updates the cooldown. No global logout, signup, user deletion, browser impersonation or extra permission is triggered automatically. Optional activity is not retried. The normal heartbeat schedule/budget remains separate.

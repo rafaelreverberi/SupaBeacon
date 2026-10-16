@@ -59,8 +59,49 @@ export const overrideSchema = z
     requests: z.number().int().min(1).max(3).optional(),
   })
   .strict();
+const identifier = z.string().regex(/^[a-zA-Z_][a-zA-Z0-9_]{0,62}$/);
+export const activityPatchSchema = z
+  .object({
+    enabled: z.boolean(),
+    mode: z.enum(['public-read', 'test-sign-in']),
+    table: identifier.nullable(),
+    column: identifier.nullable(),
+    reads: z.number().int().min(1).max(3),
+    testAccount: z
+      .object({
+        email: z.email().max(254),
+        password: z.string().min(1).max(256),
+        dedicated: z.literal(true),
+      })
+      .strict()
+      .nullable()
+      .optional(),
+    acknowledgeSessionReview: z.literal(true).optional(),
+  })
+  .strict();
+export interface ProjectActivity {
+  enabled: boolean;
+  mode: 'public-read' | 'test-sign-in';
+  table: string | null;
+  column: string | null;
+  reads: number;
+  credentialsConfigured: boolean;
+  sessionReviewRequired: boolean;
+  signInError: string | null;
+}
+export const defaultActivity: ProjectActivity = {
+  enabled: false,
+  mode: 'public-read',
+  table: null,
+  column: null,
+  reads: 1,
+  credentialsConfigured: false,
+  sessionReviewRequired: false,
+  signInError: null,
+};
 export const projectPatch = z
   .object({
+    activity: activityPatchSchema.optional(),
     enabled: z.boolean().optional(),
     overrides: overrideSchema.nullable().optional(),
     strategy: z.enum(['management', 'data']).optional(),
@@ -72,6 +113,7 @@ export const projectPatch = z
   })
   .strict();
 export interface Project {
+  activity: ProjectActivity;
   id: string;
   name: string;
   organization: string;
@@ -91,6 +133,11 @@ export interface Project {
   failures: number;
 }
 export interface Execution {
+  activity_state: string;
+  activity_requests: number;
+  activity_successes: number;
+  activity_reads: number;
+  activity_error: string | null;
   id: string;
   project_id: string;
   source: string;

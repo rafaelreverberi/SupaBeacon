@@ -140,3 +140,7 @@ Disconnect waits for active heartbeats, requests provider-side authorization rev
 - [Project pausing](https://supabase.com/docs/guides/platform/free-project-pausing)
 
 These sources document API capabilities. They do not verify this application's live OAuth registration or heartbeat effectiveness. Actual registration and provider response compatibility must be checked with your own valid credentials.
+
+## Optional per-project activity after setup
+
+The same explicit Data API capability can support extra GET reads or a dedicated test-account sign-in/read/local-sign-out check. It does not require Management API Auth Write permissions. No project is enabled automatically, no users are created/deleted, and credentials must be explicitly provided for each test-account profile. Follow [the per-project activity guide](optional-project-activity.md).

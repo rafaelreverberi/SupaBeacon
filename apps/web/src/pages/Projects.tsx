@@ -1,3 +1,4 @@
+import { ProjectActivity } from '../components/ProjectActivity';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, ChevronLeft, Database, ExternalLink, Play, Search } from 'lucide-react';
@@ -289,6 +290,12 @@ export function ProjectPage({
               : 'Database operation not confirmed'}{' '}
             · {run.data.duration ?? '…'} ms
           </span>
+          {run.data.activity_state !== 'disabled' && (
+            <span>
+              Additional activity: {run.data.activity_state} · {run.data.activity_reads} reads ·{' '}
+              {run.data.activity_requests} HTTP requests
+            </span>
+          )}
           {run.data.error && <code>{run.data.error}</code>}
         </div>
       )}
@@ -382,6 +389,14 @@ export function ProjectPage({
           </div>
         </form>
       </section>
+      <ProjectActivity
+        key={JSON.stringify(p.activity)}
+        project={p}
+        settings={p.effective}
+        dataEnabled={dataEnabled}
+        busy={busy}
+        action={action}
+      />
       <History project={id} />
     </>
   );

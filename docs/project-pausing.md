@@ -25,9 +25,11 @@ The default [read-only Management API endpoint](https://supabase.com/docs/refere
 
 Data API access is opt-in: enable it in SupaBeacon, add Secrets Read in the registered OAuth application, reauthorize, then choose a safe existing table in each project's configuration. The broad provider permission deserves consideration; SupaBeacon only reveals an existing key typed publishable and never uses privileged keys. It does not create tables, alter RLS or switch existing projects automatically. See [OAuth setup](oauth-setup.md#permissions).
 
-## Why not create/delete users or simulate logins?
+## Optional account/read checks
 
-There is no documented basis for treating simulated Auth activity as a more reliable solution. Creating and deleting users changes application state, may activate application-specific triggers or email flows, and deletion can require privileged access. An Auth response alone also does not verify a query against an application table. SupaBeacon intentionally performs no fake registrations, user deletion or login simulation, and requests no extra permissions for them. A bounded read is a much smaller operation for this purpose.
+[Optional project activity](optional-project-activity.md) can now add real bounded GET reads and, if explicitly configured, password sign-in with an existing dedicated test account followed by reads and local-scope sign-out. It is disabled by default per project. This creates real Auth events and can invoke login hooks or consume quotas; it is not hidden simulation and is not documented as more effective against pausing.
+
+Automatic account creation/deletion remains excluded because it changes application data and can require privileged access. A successful Auth call alone never establishes database-read success. Cleanup uncertainty blocks further test sign-ins until manual review. No extra capability has been enabled on the user's configured projects.
 
 ## How to assess it over time
 

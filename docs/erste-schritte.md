@@ -89,3 +89,11 @@ Die HTTP-Zugriffsadresse und die Callback-URL in SupaBeacon folgen dem neuen Por
 HTTPS-Adressen hinter einem Reverse Proxy bleiben unverändert. Für einen SSH-Tunnel mit einem anderen lokalen Port verwende `APP_URL_MODE=explicit`. Port 84 muss auf dem Server frei und durch Docker nutzbar sein; bei Rootless Docker können niedrige Ports eingeschränkt sein. [Alle Port-Beispiele](installation.md#changing-the-dashboard-port-later).
 
 Projektkonfiguration, Verbindung und Historie bleiben im Docker-Volume erhalten. Zum Ändern des Ports niemals den Datenschlüssel neu erzeugen oder das Volume löschen.
+
+## Optional: zusätzliche Aktivität pro Projekt
+
+Unter **Projects → Projekt → Optional project activity** kannst du zusätzliche begrenzte Lesezugriffe einschalten. Standardmäßig ist dies bei jedem Projekt aus. Wähle eine vorhandene sichere Tabelle, eine kleine unkritische Spalte und 1–3 zusätzliche Reads. Dafür ist der bewusst aktivierte Data-API-Zugriff samt Secrets Read und erneuter OAuth-Freigabe nötig.
+
+Alternativ gibt es **Test-account sign-in → read → local sign-out** mit einem bereits bestehenden separaten Testkonto. E-Mail und Passwort werden verschlüsselt gespeichert; gelesene Tabellenwerte und Sitzungstokens werden nicht gespeichert. Es werden keine Nutzer angelegt oder gelöscht und keine persönlichen Konten vorausgesetzt. MFA/CAPTCHA/SSO werden nicht automatisiert. Wenn die Abmeldung unklar bleibt, werden weitere Testanmeldungen bis zur manuellen Sitzungsprüfung blockiert.
+
+Das sind echte, protokollierte Testanfragen, keine Garantie gegen Projektpausen. [Konfiguration, Budgets und Fehlerbehandlung](optional-project-activity.md).

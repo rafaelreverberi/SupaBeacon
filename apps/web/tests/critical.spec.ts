@@ -49,6 +49,48 @@ test('protected onboarding, settings, project actions, history, logs, mobile and
     page.getByRole('status').filter({ hasText: 'Database operation succeeded' }),
   ).toBeVisible();
   await expect(page.getByRole('cell', { name: 'Succeeded', exact: true })).toBeVisible();
+  await expect(page.locator('.run-result .badge')).toHaveText('success');
+  await expect(page.getByLabel('Enable additional activity for this project')).not.toBeChecked();
+  await page.getByLabel('Enable additional activity for this project').check();
+  await page.getByLabel('Activity table', { exact: true }).fill('healthcheck');
+  await page.getByLabel('Safe column to read', { exact: true }).fill('id');
+  await page.getByLabel('Additional reads per execution').fill('2');
+  await page.getByRole('button', { name: 'Save optional activity', exact: true }).click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Optional project activity saved' }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel('Enable additional activity for this project')).toBeChecked();
+  await page.getByRole('button', { name: 'Run heartbeat / test connection' }).click();
+  await expect(page.locator('.run-result')).toContainText(
+    'Additional activity: success · 2 reads · 2 HTTP requests',
+  );
+  await page.getByLabel('Additional activity mode').selectOption('test-sign-in');
+  await page.getByLabel('Dedicated test-account email').fill('fixture-test@example.invalid');
+  await page
+    .getByLabel('Test-account password', { exact: true })
+    .fill('fixture-browser-test-password');
+  await page
+    .getByRole('checkbox', {
+      name: 'I confirm any newly entered credentials belong to a dedicated test account I control.',
+    })
+    .check();
+  await page.getByRole('button', { name: 'Save optional activity', exact: true }).click();
+  await expect(
+    page.getByText('Test credentials are stored encrypted.', { exact: false }),
+  ).toBeVisible();
+  await expect(page.getByLabel('Test-account password', { exact: true })).toHaveValue('');
+  await page.getByRole('button', { name: 'Run heartbeat / test connection' }).click();
+  await expect(page.locator('.run-result')).toContainText(
+    'Additional activity: success · 2 reads · 4 HTTP requests',
+  );
+  await page
+    .locator('.optional-activity')
+    .screenshot({ path: 'test-results/optional-project-activity.png' });
+  await page.getByRole('button', { name: 'Disable optional activity', exact: true }).click();
+  await expect(page.getByLabel('Enable additional activity for this project')).not.toBeChecked();
+  await page.getByRole('button', { name: 'Remove test credentials', exact: true }).click();
+  await expect(page.getByText('No test credentials configured.', { exact: false })).toBeVisible();
   await page.locator('td .mono').first().click();
   await expect(page.getByRole('dialog', { name: 'Execution details' })).toBeVisible();
   await page.keyboard.press('Escape');

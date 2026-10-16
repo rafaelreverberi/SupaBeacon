@@ -27,6 +27,8 @@ export function History({ project }: { project?: string }) {
             duration: number;
             ok: number;
             error: string | null;
+            kind: string;
+            row_count: number | null;
           }[];
         }
       >(`/executions/${selected}`),
@@ -88,6 +90,12 @@ export function History({ project }: { project?: string }) {
                     </td>
                     <td>
                       {e.successes} / {e.requests}
+                      {e.activity_state !== 'disabled' && (
+                        <small>
+                          Additional: {e.activity_state} · {e.activity_reads} reads ·{' '}
+                          {e.activity_requests} HTTP
+                        </small>
+                      )}
                     </td>
                     <td>{e.database_ok ? 'Succeeded' : 'Not confirmed'}</td>
                     <td>{e.duration === null ? '—' : `${e.duration} ms`}</td>
@@ -117,9 +125,18 @@ export function History({ project }: { project?: string }) {
           {detail.data?.details.map((r) => (
             <div className="request-detail" key={r.id}>
               <span>{time(r.at)}</span>
+              <code>{r.kind.replaceAll('_', ' ')}</code>
               <Badge tone={r.ok ? 'emerald' : 'danger'}>HTTP {r.status ?? '—'}</Badge>
               <span>{r.duration} ms</span>
-              <code>{r.error ?? 'Database operation succeeded'}</code>
+              <code>
+                {r.error ??
+                  (r.kind === 'auth_sign_in'
+                    ? 'Test sign-in succeeded'
+                    : r.kind === 'auth_sign_out'
+                      ? 'Local sign-out succeeded'
+                      : 'Database operation succeeded')}
+              </code>
+              {r.row_count !== null && <span>{r.row_count} row(s); values discarded</span>}
             </div>
           ))}
         </Modal>

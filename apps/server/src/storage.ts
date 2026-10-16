@@ -6,6 +6,8 @@ import { mkdirSync, chmodSync } from 'node:fs';
 import { dirname } from 'node:path';
 import {
   defaults,
+  defaultActivity,
+  type ProjectActivity,
   settingsSchema,
   type Settings,
   type Project,
@@ -47,6 +49,20 @@ export class Store {
       `);
       this.db.prepare('INSERT INTO migrations VALUES(1,?)').run(Date.now());
     })();
+    this.db.transaction(() => {
+      if (this.db.prepare('SELECT 1 FROM migrations WHERE version=2').get()) return;
+      this.db.exec(`
+        CREATE TABLE project_activity(project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE, enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0,1)),mode TEXT NOT NULL DEFAULT 'public-read' CHECK(mode IN ('public-read','test-sign-in')),table_name TEXT,column_name TEXT,reads INTEGER NOT NULL DEFAULT 1 CHECK(reads BETWEEN 1 AND 3),credentials TEXT,sign_in_error TEXT,session_review INTEGER NOT NULL DEFAULT 0 CHECK(session_review IN (0,1)));
+        ALTER TABLE executions ADD COLUMN activity_state TEXT NOT NULL DEFAULT 'disabled';
+        ALTER TABLE executions ADD COLUMN activity_requests INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE executions ADD COLUMN activity_successes INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE executions ADD COLUMN activity_reads INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE executions ADD COLUMN activity_error TEXT;
+        ALTER TABLE execution_requests ADD COLUMN kind TEXT NOT NULL DEFAULT 'heartbeat';
+        ALTER TABLE execution_requests ADD COLUMN row_count INTEGER;
+      `);
+      this.db.prepare('INSERT INTO migrations VALUES(2,?)').run(Date.now());
+    })();
     this.orm = drizzle(this.db);
     if (!this.get('monitoring'))
       this.set('monitoring', settingsSchema.parse({ ...defaults, ...initial }));
@@ -66,12 +82,53 @@ export class Store {
     return settingsSchema.parse(this.get('monitoring'));
   }
   projects(): Project[] {
-    return this.db
+    const rows = this.db
       .prepare(
         `SELECT p.*, (SELECT count(*) FROM executions e WHERE e.project_id=p.id AND e.state='failed' AND e.started>?) AS failures FROM projects p ORDER BY p.name`,
       )
-      .all(Date.now() - 7 * 86400_000) as Project[];
+      .all(Date.now() - 7 * 86400_000) as Omit<Project, 'activity'>[];
+    // Never select the encrypted credential column into API-facing project objects.
+    const configs = this.db
+      .prepare(
+        'SELECT project_id,enabled,mode,table_name,column_name,reads,credentials IS NOT NULL AS configured,session_review,sign_in_error FROM project_activity',
+      )
+      .all() as {
+      project_id: string;
+      enabled: number;
+      mode: ProjectActivity['mode'];
+      table_name: string | null;
+      column_name: string | null;
+      reads: number;
+      configured: number;
+      session_review: number;
+      sign_in_error: string | null;
+    }[];
+    const byId = new Map(
+      configs.map((a) => [
+        a.project_id,
+        {
+          enabled: !!a.enabled,
+          mode: a.mode,
+          table: a.table_name,
+          column: a.column_name,
+          reads: a.reads,
+          credentialsConfigured: !!a.configured,
+          sessionReviewRequired: !!a.session_review,
+          signInError: a.sign_in_error,
+        },
+      ]),
+    );
+    return rows.map((p) => ({ ...p, activity: byId.get(p.id) ?? { ...defaultActivity } }));
   }
+  activitySecret(id: string) {
+    return (
+      (
+        this.db.prepare('SELECT credentials FROM project_activity WHERE project_id=?').get(id) as
+          { credentials: string | null } | undefined
+      )?.credentials ?? null
+    );
+  }
+
   project(id: string) {
     return this.projects().find((p) => p.id === id);
   }

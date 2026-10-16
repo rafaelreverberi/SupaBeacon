@@ -64,9 +64,9 @@ export class Supabase {
       syncError: this.store.get<string>('sync_error'),
     };
   }
-  async request(url: string, init: RequestInit = {}): Promise<Response> {
+  async request(url: string, init: RequestInit = {}, cleanup = false): Promise<Response> {
     const wait = this.store.get<number>('rate_until');
-    if (wait && wait > Date.now())
+    if (!cleanup && wait && wait > Date.now())
       throw new ServiceError('RATE_LIMITED', 429, String(Math.ceil((wait - Date.now()) / 1000)));
     let response: Response;
     try {
